@@ -121,6 +121,22 @@ export default function TopNav() {
           
           <NotificationBell />
 
+          {currentUser?.role === 'Admin' && (
+            <button 
+              onClick={async () => {
+                if (confirm('Gửi thông báo test đến tất cả User?')) {
+                  const res = await fetch('/api/notifications/check-kpi');
+                  const data = await res.json();
+                  if (data.success) alert('Đã gửi thông báo test thành công!');
+                  else alert('Lỗi: ' + data.error);
+                }
+              }}
+              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-[11px] font-bold hover:bg-indigo-100 transition-all border border-indigo-100"
+            >
+              <RefreshCw size={14} /> Test Notify
+            </button>
+          )}
+
           <div className="relative">
             <button 
               onClick={() => setIsProfileOpen(!isProfileOpen)}
