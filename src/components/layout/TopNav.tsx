@@ -19,6 +19,7 @@ const mainNav = [
   { name: 'Dashboards', href: '/dashboard', icon: LayoutDashboard, roles: ['Admin', 'Manager', 'User'] },
   { name: 'Reports', href: '/dashboard/reports', icon: FileText, roles: ['Admin', 'Manager'] },
   { name: 'Analytics', href: '/dashboard/analytics', icon: Activity, roles: ['Admin', 'Manager', 'User'] },
+  { name: 'MBO', href: '/dashboard/mbo', icon: LayoutGrid, roles: ['Admin', 'Manager', 'User'] },
   { name: 'Users', href: '/dashboard/users', icon: Users, roles: ['Admin'] },
   { name: 'Org Chart', href: '/dashboard/org-chart', icon: Network, roles: ['Admin', 'Manager', 'User'] },
 ];

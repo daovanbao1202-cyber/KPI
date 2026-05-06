@@ -8,7 +8,6 @@ import ViewSelector from '@/components/dashboard/ViewSelector';
 import ChartSelector from '@/components/dashboard/ChartSelector';
 import ChartModal from '@/components/dashboard/ChartModal';
 
-import MBOSheet from '@/components/dashboard/MBOSheet';
 
 import { sendEmailAlert, checkThresholds } from '@/lib/alerts';
 
@@ -54,7 +53,7 @@ export default function DashboardsPage() {
 
   const currentViewName = viewLevel === 'Company' 
     ? 'All Organization' 
-    : (viewLevel === 'MBO' ? 'Personal MBO Sheet' : (typeof viewFilter === 'number' ? users.find(u => u.id === viewFilter)?.firstName + ' ' + users.find(u => u.id === viewFilter)?.lastName : viewFilter));
+    : (typeof viewFilter === 'number' ? users.find(u => u.id === viewFilter)?.firstName + ' ' + users.find(u => u.id === viewFilter)?.lastName : viewFilter);
 
   const handleSaveChart = (config: { kpiId?: string; kpiIds?: string[]; title: string; dateRange: { start: string; end: string } }) => {
     if (selectedChartType) {
@@ -76,7 +75,7 @@ export default function DashboardsPage() {
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
            <div className="animate-in slide-in-from-left duration-700">
               <div className="flex items-center gap-2 text-brand-primary font-bold text-sm mb-2 uppercase tracking-[0.2em]">
-                 <LayoutDashboard size={14} /> {viewLevel === 'MBO' ? 'Strategic Performance' : 'Global Overview'}
+                 <LayoutDashboard size={14} /> Global Overview
               </div>
               <h1 className="text-4xl font-black text-slate-800 dark:text-white tracking-tight mb-2">
                 Hello, {currentUser?.firstName}! 👋
@@ -101,10 +100,7 @@ export default function DashboardsPage() {
         </div>
 
         {/* Dashboard Content Toggle */}
-        {viewLevel === 'MBO' ? (
-          <MBOSheet />
-        ) : (
-          <>
+        <>
             <ChartSelector 
               onSelect={handleSelectChartType} 
               onOpen={() => setIsChartSelectorOpen(!isChartSelectorOpen)}
@@ -222,8 +218,7 @@ export default function DashboardsPage() {
                 )}
               </div>
             </div>
-          </>
-        )}
+        </>
       </div>
     </div>
   );

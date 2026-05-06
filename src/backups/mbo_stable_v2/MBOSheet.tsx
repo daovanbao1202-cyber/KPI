@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useKPI } from '@/context/KPIContext';
 import { 
   TrendingUp, Download, Plus, Target,
@@ -47,75 +47,11 @@ export default function MBOSheet() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // Column Resizing State
-  const [colWidths, setColWidths] = useState<Record<string, number>>({
-    stt: 50,
-    csf: 320,
-    kpi: 250,
-    weight: 80,
-    target: 100,
-    actual: 100,
-    percent: 100,
-    grade: 80,
-    note: 250
-  });
-
-  const resizingCol = useRef<{ key: string, startX: number, startWidth: number } | null>(null);
-  const sheetRef = useRef<HTMLDivElement>(null);
-
-  // Handle Global Clicks to clear selection
-  useEffect(() => {
-    const handleGlobalClick = (e: MouseEvent) => {
-      // If click is outside the sheet or on a non-header element, we might want to clear.
-      // But let's be simpler: any click that isn't a header click clears the column selection.
-      const target = e.target as HTMLElement;
-      const isHeader = target.closest('th');
-      if (!isHeader) {
-        setSelectedColKey(null);
-      }
-    };
-    document.addEventListener('mousedown', handleGlobalClick);
-    return () => document.removeEventListener('mousedown', handleGlobalClick);
-  }, []);
-
   const perspectiveOptions = Object.keys(perspectiveStyles).filter(opt => opt !== "CHƯA PHÂN LOẠI");
-
-  const handleMouseDown = (key: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    resizingCol.current = {
-      key,
-      startX: e.pageX,
-      startWidth: colWidths[key] || 150
-    };
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.body.style.cursor = 'col-resize';
-  };
-
-  const handleMouseMove = (e: MouseEvent) => {
-    if (!resizingCol.current) return;
-    const { key, startX, startWidth } = resizingCol.current;
-    const delta = e.pageX - startX;
-    setColWidths(prev => ({
-      ...prev,
-      [key]: Math.max(50, startWidth + delta)
-    }));
-  };
-
-  const handleMouseUp = () => {
-    resizingCol.current = null;
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
-    document.body.style.cursor = 'default';
-  };
 
   const handleAddColumn = () => {
     const colName = prompt('Nhập tên cột mới:');
-    if (colName) {
-      const key = `custom-${customColumns.length}`;
-      setCustomColumns([...customColumns, colName.toUpperCase()]);
-      setColWidths(prev => ({ ...prev, [key]: 150 }));
-    }
+    if (colName) setCustomColumns([...customColumns, colName.toUpperCase()]);
   };
 
   const handleDeleteColumn = (key: string, index?: number) => {
@@ -142,7 +78,7 @@ export default function MBOSheet() {
   const handleBack = async () => {
     if (confirm('Bạn có muốn hủy bỏ các thay đổi chưa lưu và quay lại dữ liệu cũ?')) {
       await loadFromDisk();
-      window.location.reload();
+      window.location.reload(); // Refresh to ensure all states are clean
     }
   };
 
@@ -152,19 +88,7 @@ export default function MBOSheet() {
       const userIds = filteredUsers.map(u => u.id);
       const actual = userActuals.filter(a => a.kpiId === kpi.id && userIds.includes(a.userId)).reduce((sum, curr) => sum + curr.actualValue, 0);
       const plan = userTargets.filter(t => t.kpiId === kpi.id && userIds.includes(t.userId)).reduce((sum, curr) => sum + curr.targetValue, 0) || Number(kpi.hasTarget) || 100;
-      return { 
-        id: kpi.id, 
-        category: kpi.category || "CHƯA PHÂN LOẠI", 
-        csf: kpi.description || 'Nhiệm vụ chiến lược...', 
-        kpiName: kpi.name, 
-        weight: 10, 
-        plan, 
-        actualVal: actual, 
-        completion: isNaN(actual / plan) ? 0 : parseFloat(((actual / plan) * 100).toFixed(1)), 
-        unit: kpi.unit, 
-        iconId: kpi.icon || 'target',
-        customValues: kpi.customValues || {} 
-      };
+      return { id: kpi.id, category: kpi.category || "CHƯA PHÂN LOẠI", csf: kpi.description || 'Nhiệm vụ chiến lược...', kpiName: kpi.name, weight: 10, plan, actualVal: actual, completion: isNaN(actual / plan) ? 0 : parseFloat(((actual / plan) * 100).toFixed(1)), unit: kpi.unit, iconId: kpi.icon || 'target' };
     });
   };
 
@@ -192,18 +116,18 @@ export default function MBOSheet() {
   };
 
   const allStandardCols = [
-    { key: 'stt', label: 'STT' },
-    { key: 'csf', label: 'HẠNG MỤC / CHIẾN LƯỢC (CSF)' },
-    { key: 'kpi', label: 'CHỈ SỐ KPI / ĐƠN VỊ' },
-    { key: 'weight', label: 'TRỌNG SỐ' },
-    { key: 'target', label: 'MỤC TIÊU' },
-    { key: 'actual', label: 'THỰC TẾ' },
-    { key: 'percent', label: '% HOÀN THÀNH' },
-    { key: 'grade', label: 'XẾP LOẠI' }
+    { key: 'stt', label: 'STT', width: 'w-12' },
+    { key: 'csf', label: 'HẠNG MỤC / CHIẾN LƯỢC (CSF)', width: 'w-80' },
+    { key: 'kpi', label: 'CHỈ SỐ KPI / ĐƠN VỊ', width: 'w-64' },
+    { key: 'weight', label: 'TRỌNG SỐ', width: 'w-24' },
+    { key: 'target', label: 'MỤC TIÊU', width: 'w-32' },
+    { key: 'actual', label: 'THỰC TẾ', width: 'w-32' },
+    { key: 'percent', label: '% HOÀN THÀNH', width: 'w-32' },
+    { key: 'grade', label: 'XẾP LOẠI', width: 'w-24' }
   ].filter(c => !hiddenCols.includes(c.key));
 
   return (
-    <div ref={sheetRef} className="flex flex-col gap-0 pb-20 font-sans shadow-2xl border border-gray-200 rounded-lg overflow-hidden select-none" onClick={() => { setActiveIconPicker(null); setSelectedRowId(null); }}>
+    <div className="flex flex-col gap-0 pb-20 font-sans shadow-2xl border border-gray-200 rounded-lg overflow-hidden" onClick={() => { setActiveIconPicker(null); setSelectedRowId(null); setSelectedColKey(null); }}>
       
       <div className="bg-[#003366] py-3 px-6 text-center border-b border-[#002244] flex items-center justify-between">
         <div className="w-40 flex items-center gap-2">
@@ -254,70 +178,59 @@ export default function MBOSheet() {
         </div>
       </div>
 
-      <div className="overflow-x-auto bg-white scrollbar-thin scrollbar-thumb-gray-300">
-        <table className="table-fixed text-[12px] border-collapse" style={{ width: 'max-content' }}>
+      <div className="overflow-x-auto bg-white">
+        <table className="w-full text-[12px] border-collapse min-w-[1400px]">
           <thead>
-            <tr className="bg-[#336699] text-white h-12">
+            <tr className="bg-[#336699] text-white">
               {allStandardCols.map(col => (
                 <th 
                   key={col.key} 
-                  style={{ width: colWidths[col.key] || 150 }}
-                  className={`border border-[#224466] text-center cursor-pointer uppercase transition-all relative ${selectedColKey === col.key ? 'bg-[#002244] shadow-[inset_0_0_0_2px_rgba(255,255,255,0.3)]' : 'hover:bg-[#4477aa]'}`}
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    setSelectedColKey(col.key); 
-                    setSelectedRowId(null);
-                  }}
+                  className={`border border-[#224466] ${col.width} py-3 text-center cursor-pointer uppercase transition-all relative ${selectedColKey === col.key ? 'bg-[#002244] shadow-[inset_0_0_0_2px_rgba(255,255,255,0.3)]' : 'hover:bg-[#4477aa]'}`}
+                  onClick={(e) => { e.stopPropagation(); setSelectedColKey(col.key); }}
                 >
-                   <div className="flex items-center justify-center gap-2 px-2 truncate">
+                   <div className="flex items-center justify-center gap-2">
                       {col.label}
                       {selectedColKey === col.key && (
-                        <button onClick={(e) => { e.stopPropagation(); handleDeleteColumn(col.key); }} className="bg-rose-600 text-white p-1 rounded hover:bg-rose-700"><Trash2 size={12} /></button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleDeleteColumn(col.key); }} 
+                          className="bg-rose-600 text-white p-1.5 rounded-lg shadow-xl hover:bg-rose-700 transform scale-110"
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       )}
                    </div>
-                   <div onMouseDown={(e) => handleMouseDown(col.key, e)} className="absolute right-0 top-0 w-1 h-full cursor-col-resize hover:bg-blue-400 z-10" />
                 </th>
               ))}
-              {customColumns.map((col, i) => {
-                const key = `custom-${i}`;
-                return (
-                  <th 
-                    key={key} 
-                    style={{ width: colWidths[key] || 150 }}
-                    className={`border border-[#224466] text-center px-2 uppercase cursor-pointer transition-all relative ${selectedColKey === key ? 'bg-[#002244] shadow-[inset_0_0_0_2px_rgba(255,255,255,0.5)]' : 'hover:bg-[#4477aa]'}`}
-                    onClick={(e) => { 
-                      e.stopPropagation(); 
-                      setSelectedColKey(key); 
-                      setSelectedRowId(null); 
-                    }}
-                  >
-                    <div className="flex items-center justify-between gap-1 h-full py-1">
-                        <span className="flex-1 font-black tracking-wider truncate">{col}</span>
-                        {selectedColKey === key && (
-                          <button onClick={(e) => { e.stopPropagation(); handleDeleteColumn(key, i); }} className="bg-rose-600 text-white p-1 rounded hover:bg-rose-700"><Trash2 size={12} /></button>
-                        )}
-                    </div>
-                    <div onMouseDown={(e) => handleMouseDown(key, e)} className="absolute right-0 top-0 w-1 h-full cursor-col-resize hover:bg-blue-400 z-10" />
-                  </th>
-                );
-              })}
+              {customColumns.map((col, i) => (
+                <th 
+                  key={`custom-${i}`} 
+                  className={`border border-[#224466] w-44 text-center px-4 uppercase cursor-pointer transition-all relative ${selectedColKey === `custom-${i}` ? 'bg-[#002244] shadow-[inset_0_0_0_2px_rgba(255,255,255,0.5)]' : 'hover:bg-[#4477aa]'}`}
+                  onClick={(e) => { e.stopPropagation(); setSelectedColKey(`custom-${i}`); }}
+                >
+                   <div className="flex items-center justify-between gap-2 h-full py-1">
+                      <span className="flex-1 font-black tracking-wider">{col}</span>
+                      {selectedColKey === `custom-${i}` && (
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleDeleteColumn(`custom-${i}`, i); }} 
+                          className="bg-rose-600 text-white p-2 rounded-lg shadow-xl hover:bg-rose-700 transform scale-110 border border-rose-400"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                   </div>
+                </th>
+              ))}
               {!hiddenCols.includes('note') && (
                 <th 
-                  style={{ width: colWidths['note'] || 250 }}
-                  className={`border border-[#224466] px-4 text-left cursor-pointer uppercase transition-all relative ${selectedColKey === 'note' ? 'bg-[#002244] shadow-[inset_0_0_0_2px_rgba(255,255,255,0.3)]' : 'hover:bg-[#4477aa]'}`}
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    setSelectedColKey('note'); 
-                    setSelectedRowId(null); 
-                  }}
+                  className={`border border-[#224466] w-64 px-4 text-left cursor-pointer uppercase transition-all relative ${selectedColKey === 'note' ? 'bg-[#002244] shadow-[inset_0_0_0_2px_rgba(255,255,255,0.3)]' : 'hover:bg-[#4477aa]'}`}
+                  onClick={(e) => { e.stopPropagation(); setSelectedColKey('note'); }}
                 >
                   <div className="flex items-center justify-between">
-                     GHI CHÚ
+                     GHI CHÚ / HÀNH ĐỘNG
                      {selectedColKey === 'note' && (
-                        <button onClick={(e) => { e.stopPropagation(); handleDeleteColumn('note'); }} className="bg-rose-600 text-white p-1 rounded"><Trash2 size={12} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); handleDeleteColumn('note'); }} className="bg-rose-600 text-white p-1.5 rounded-lg shadow-xl"><Trash2 size={14} /></button>
                      )}
                   </div>
-                  <div onMouseDown={(e) => handleMouseDown('note', e)} className="absolute right-0 top-0 w-1 h-full cursor-col-resize hover:bg-blue-400 z-10" />
                 </th>
               )}
             </tr>
@@ -329,7 +242,7 @@ export default function MBOSheet() {
                 <React.Fragment key={groupIdx}>
                   <tr className={`${style.bgColor} font-black ${style.textColor}`}>
                     {allStandardCols.map(c => (
-                       <td key={c.key} className={`border border-gray-300 py-2 truncate ${c.key === 'stt' ? 'text-center' : c.key === 'target' || c.key === 'actual' ? 'text-right px-4' : 'px-4'} ${selectedColKey === c.key ? 'bg-white/40' : ''}`}>
+                       <td key={c.key} className={`border border-gray-300 py-2 ${c.key === 'stt' ? 'text-center' : c.key === 'target' || c.key === 'actual' ? 'text-right px-4' : 'px-4'} ${selectedColKey === c.key ? 'bg-white/40' : ''}`}>
                           {c.key === 'csf' ? group.name : c.key === 'weight' ? '100%' : c.key === 'target' ? group.totalPlan.toLocaleString() : c.key === 'actual' ? group.totalActual.toLocaleString() : c.key === 'percent' ? group.avgCompletion + '%' : ''}
                        </td>
                     ))}
@@ -345,74 +258,50 @@ export default function MBOSheet() {
                       <tr 
                         key={item.id} 
                         className={`${style.rowColor} hover:brightness-95 transition-all cursor-pointer ${selectedRowId === item.id ? 'bg-blue-100/60 ring-2 ring-inset ring-blue-500' : ''}`}
-                        onClick={(e) => { 
-                          e.stopPropagation(); 
-                          setSelectedRowId(item.id); 
-                        }}
+                        onClick={(e) => { e.stopPropagation(); setSelectedRowId(item.id); }}
                       >
                         {allStandardCols.map(c => (
-                          <td key={c.key} className={`border border-gray-200 py-1 ${c.key === 'stt' ? 'text-center text-gray-400' : 'px-4'} ${selectedColKey === c.key ? 'bg-blue-600/10 border-x-2 border-blue-500' : ''}`}>
+                          <td key={c.key} className={`border border-gray-200 py-2 ${c.key === 'stt' ? 'text-center text-gray-400' : 'px-4'} ${selectedColKey === c.key ? 'bg-blue-600/10 border-x-2 border-blue-500' : ''}`}>
                              {c.key === 'stt' && (itemIdx + 1)}
                              {c.key === 'csf' && (
-                               <div className="flex flex-col gap-1 w-full overflow-hidden py-1">
-                                  <div className="flex items-center gap-2">
-                                     <div className="relative shrink-0">
-                                        <button onClick={(e) => { e.stopPropagation(); setActiveIconPicker(activeIconPicker === item.id ? null : item.id); }} className={`w-7 h-7 rounded-lg ${currentIcon.bg} flex items-center justify-center ${currentIcon.color} border border-gray-200 shadow-sm`}>{currentIcon.icon}</button>
-                                        {activeIconPicker === item.id && (
-                                          <div className="fixed z-[9999] mt-2 bg-white shadow-2xl border border-gray-200 rounded-xl p-3 grid grid-cols-4 gap-2 w-40 animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
-                                             {iconList.map(icon => (
-                                               <button key={icon.id} onClick={() => { updateKPIDefinition(item.id, { icon: icon.id }); setActiveIconPicker(null); }} className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${icon.bg} ${icon.color} hover:scale-110 shadow-sm border ${item.iconId === icon.id ? 'ring-2 ring-blue-400' : 'border-gray-100'}`}>{icon.icon}</button>
-                                             ))}
-                                          </div>
-                                        )}
-                                     </div>
-                                     <select 
-                                       value={item.category === "CHƯA PHÂN LOẠI" ? "" : item.category} 
-                                       onChange={(e) => updateKPIDefinition(item.id, { category: e.target.value })} 
-                                       onClick={(e) => e.stopPropagation()} 
-                                       className={`flex-1 bg-gray-50 border-none px-2 py-0.5 rounded text-[10px] font-bold focus:ring-0 cursor-pointer uppercase truncate ${!item.category || item.category === "CHƯA PHÂN LOẠI" ? 'text-gray-400 italic' : 'text-gray-700'}`}
-                                     >
-                                       <option value="">-- PHÂN LOẠI --</option>
-                                       {perspectiveOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                                     </select>
+                               <div className="flex items-center gap-2">
+                                  <div className="relative">
+                                     <button onClick={(e) => { e.stopPropagation(); setActiveIconPicker(activeIconPicker === item.id ? null : item.id); }} className={`w-7 h-7 rounded-lg ${currentIcon.bg} flex items-center justify-center ${currentIcon.color} border border-gray-200 shadow-sm`}>{currentIcon.icon}</button>
+                                     {activeIconPicker === item.id && (
+                                       <div className="fixed z-[9999] mt-2 bg-white shadow-2xl border border-gray-200 rounded-xl p-3 grid grid-cols-4 gap-2 w-40 animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+                                          {iconList.map(icon => (
+                                            <button key={icon.id} onClick={() => { updateKPIDefinition(item.id, { icon: icon.id }); setActiveIconPicker(null); }} className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${icon.bg} ${icon.color} hover:scale-110 shadow-sm border ${item.iconId === icon.id ? 'ring-2 ring-blue-400' : 'border-gray-100'}`}>{icon.icon}</button>
+                                          ))}
+                                       </div>
+                                     )}
                                   </div>
-                                  <textarea 
-                                    value={item.csf === 'Nhiệm vụ chiến lược...' ? '' : item.csf} 
-                                    placeholder="Nhập nhiệm vụ chiến lược (CSF)..." 
-                                    onChange={(e) => {
-                                       updateKPIDefinition(item.id, { description: e.target.value });
-                                       e.target.style.height = 'auto';
-                                       e.target.style.height = e.target.scrollHeight + 'px';
-                                    }} 
-                                    onFocus={(e) => {
-                                       e.target.style.height = 'auto';
-                                       e.target.style.height = e.target.scrollHeight + 'px';
-                                    }}
-                                    className="w-full bg-transparent border-none p-0 text-[11px] font-medium text-gray-600 focus:ring-0 placeholder:text-gray-300 placeholder:italic resize-none overflow-hidden leading-tight min-h-[20px]" 
-                                  />
+                                  <select 
+                                    value={item.category === "CHƯA PHÂN LOẠI" ? "" : item.category} 
+                                    onChange={(e) => updateKPIDefinition(item.id, { category: e.target.value })} 
+                                    onClick={(e) => e.stopPropagation()} 
+                                    className={`flex-1 bg-transparent border-none p-0 text-[11px] font-bold focus:ring-0 cursor-pointer uppercase ${!item.category || item.category === "CHƯA PHÂN LOẠI" ? 'text-gray-400 italic' : 'text-gray-700'}`}
+                                  >
+                                    <option value="">-- Chọn hạng mục --</option>
+                                    {perspectiveOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                  </select>
                                </div>
                              )}
                              {c.key === 'kpi' && (
                                <div className="flex flex-col">
-                                 <textarea 
+                                 <input 
+                                   type="text" 
                                    value={item.kpiName} 
-                                   placeholder="Tên KPI..." 
-                                   onChange={(e) => {
-                                      updateKPIDefinition(item.id, { name: e.target.value });
-                                      e.target.style.height = 'auto';
-                                      e.target.style.height = e.target.scrollHeight + 'px';
-                                   }} 
-                                   onFocus={(e) => {
-                                      e.target.style.height = 'auto';
-                                      e.target.style.height = e.target.scrollHeight + 'px';
-                                   }}
-                                   className="w-full bg-transparent border-none p-0 text-[12px] font-bold text-[#003366] focus:ring-0 placeholder:text-gray-300 placeholder:italic resize-none overflow-hidden leading-tight min-h-[24px]" 
+                                   placeholder="Nhấn để nhập tên KPI..." 
+                                   onChange={(e) => updateKPIDefinition(item.id, { name: e.target.value })} 
+                                   onClick={(e) => e.stopPropagation()} 
+                                   className="w-full bg-transparent border-none p-0 text-[12px] font-bold text-[#003366] focus:ring-0 placeholder:text-gray-300 placeholder:italic placeholder:font-normal" 
                                  />
                                  <input 
                                    type="text" 
                                    value={item.unit} 
                                    placeholder="Đơn vị..." 
                                    onChange={(e) => updateKPIDefinition(item.id, { unit: e.target.value })} 
+                                   onClick={(e) => e.stopPropagation()} 
                                    className="bg-transparent border-none p-0 text-[10px] text-gray-400 focus:ring-0 placeholder:text-gray-200" 
                                  />
                                </div>
@@ -424,33 +313,14 @@ export default function MBOSheet() {
                              {c.key === 'grade' && <div className={`w-6 h-6 mx-auto rounded flex items-center justify-center font-black text-[10px] border shadow-sm ${item.completion >= 100 ? 'bg-emerald-600 text-white' : 'bg-rose-500 text-white'}`}>{item.completion >= 100 ? 'A' : 'B'}</div>}
                           </td>
                         ))}
-                        {customColumns.map((col, i) => {
-                          const key = `custom-${i}`;
-                          const customVals = (item as any).customValues || {};
-                          return (
-                            <td key={key} className={`border border-gray-200 px-2 text-center transition-colors ${selectedColKey === key ? 'bg-blue-600/10 border-x-2 border-blue-500 font-bold' : ''}`}>
-                               <textarea 
-                                 value={customVals[col] || ''}
-                                 className="w-full bg-transparent border-none text-center focus:ring-0 text-[11px] font-bold resize-none overflow-hidden leading-tight py-1 min-h-[24px]" 
-                                 placeholder="..." 
-                                 onChange={(e) => {
-                                    updateKPIDefinition(item.id, { 
-                                      customValues: { ...customVals, [col]: e.target.value } 
-                                    });
-                                    e.target.style.height = 'auto';
-                                    e.target.style.height = e.target.scrollHeight + 'px';
-                                 }}
-                                 onFocus={(e) => {
-                                    e.target.style.height = 'auto';
-                                    e.target.style.height = e.target.scrollHeight + 'px';
-                                 }}
-                               />
-                            </td>
-                          );
-                        })}
+                        {customColumns.map((col, i) => (
+                          <td key={i} className={`border border-gray-200 px-4 text-center transition-colors ${selectedColKey === `custom-${i}` ? 'bg-blue-600/10 border-x-2 border-blue-500 font-bold' : ''}`}>
+                             <input type="text" className="w-full bg-transparent border-none text-center focus:ring-0 text-[11px] font-bold" placeholder="..." onClick={(e) => e.stopPropagation()} />
+                          </td>
+                        ))}
                         {!hiddenCols.includes('note') && (
                           <td className={`border border-gray-200 px-4 flex items-center justify-between ${selectedColKey === 'note' ? 'bg-blue-600/10 border-x-2 border-blue-500' : ''}`}>
-                             <span className="text-gray-500 italic text-[11px] truncate shrink">Cần cải thiện tiến độ.</span>
+                             <span className="text-gray-500 italic text-[11px]">{item.completion < 100 ? 'Cần cải thiện tiến độ.' : 'Duy trì phong độ.'}</span>
                              {selectedRowId === item.id && (
                                <button onClick={(e) => { e.stopPropagation(); if (confirm('Xóa dòng này?')) deleteKPIDefinition(item.id); }} className="text-rose-500 p-1.5 bg-rose-50 rounded-md hover:bg-rose-100 transition-all border border-rose-200 shadow-sm"><Trash2 size={16} /></button>
                              )}
@@ -463,8 +333,8 @@ export default function MBOSheet() {
               );
             })}
 
-            <tr className="bg-[#003366] text-white font-black text-center h-12">
-              <td className="border border-[#002244]" colSpan={allStandardCols.findIndex(c => c.key === 'weight')}>TỔNG CỘNG HỆ THỐNG</td>
+            <tr className="bg-[#003366] text-white font-black text-center">
+              <td className="border border-[#002244] py-3" colSpan={allStandardCols.findIndex(c => c.key === 'weight')}>TỔNG CỘNG HỆ THỐNG</td>
               {allStandardCols.map(c => {
                 if (['weight', 'target', 'actual', 'percent', 'grade'].includes(c.key)) {
                   return <td key={c.key} className={`border border-[#002244] ${c.key === 'target' || c.key === 'actual' ? 'text-right px-4' : ''} ${selectedColKey === c.key ? 'brightness-150 border-x-2 border-white' : ''}`}>

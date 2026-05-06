@@ -28,7 +28,6 @@ export interface KPIDefinition {
   formula?: string;
   calculateThisTarget?: boolean;
   hasTarget?: string; 
-  customValues?: Record<string, string>; // { [columnName]: value }
 }
 
 export interface User {
@@ -106,6 +105,7 @@ export interface UserSettings {
   emailNotifications: boolean;
   language: string;
   timezone: string;
+  offset?: number;
 }
 
 export type ActualsMap = Record<string, string>;
@@ -175,7 +175,7 @@ interface KPIContextType {
   saveToDisk: () => Promise<void>;
   loadFromDisk: () => Promise<void>;
   importData: (data: any) => void;
-  
+
   // MBO UI Persistence
   customColumns: string[];
   setCustomColumns: (cols: string[]) => void;
@@ -272,7 +272,6 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
   const [isHydrated, setIsHydrated] = useState(false);
   const [customColumns, setCustomColumns] = useState<string[]>([]);
   const [hiddenCols, setHiddenCols] = useState<string[]>([]);
-  const isLoadingRef = React.useRef(false);
 
   useEffect(() => {
     const safeParse = (key: string, fallback: any) => {
@@ -288,49 +287,14 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    setKpiDefs(prev => {
-      const saved = safeParse('kpi_defs_v4', defaultKpis);
-      
-      const manualRecoveryMap: Record<number, string> = {
-        0: "신규고객확보/New Customer Acquisition/Thu hút khách hàng mới",
-        1: "계획달성/Plan Achievement/Đạt mục tiêu kế hoạch",
-        2: "미래성장/Future Growth/Tăng trưởng tương lai (Future Growth)",
-        3: "미래성장/Future Growth/Tăng trưởng tương lai (Future Growth)",
-        4: "이익기여/Profit Contribution/Đóng góp lợi nhuận (Profit Contribution)",
-        5: "이익기여/Profit Contribution/Đóng góp lợi nhuận (Profit Contribution)",
-        6: "자산관리/Asset Management/Quản lý tài sản",
-        7: "자산관리/Asset Management/Quản lý tài sản"
-      };
-
-      return saved.map((k: any, idx: number) => {
-        const recoveredValue = manualRecoveryMap[idx];
-        const currentCustom = k.customValues || {};
-        
-        // If the cell is empty, inject the recovered value
-        if (recoveredValue && (!currentCustom["전략과제(CSF)/NHIỆM VỤ CHIẾN LƯỢC"] || currentCustom["전략과제(CSF)/NHIỆM VỤ CHIẾN LƯỢC"] === "...")) {
-          return {
-            ...k,
-            customValues: {
-              ...currentCustom,
-              "전략과제(CSF)/NHIỆM VỤ CHIẾN LƯỢC": recoveredValue
-            }
-          };
-        }
-        return k;
-      });
-    });
-    setCustomColumns(prev => {
-      const saved = safeParse('mbo_custom_cols_v1', []);
-      const required = ["전략과제(CSF)/NHIỆM VỤ CHIẾN LƯỢC", "CSF - YẾU TỐ THÀNH CÔNG CỐT LÕI", "핵심성과지표 (KPI)/CHỈ SỐ HIỆU QUẢ CỐT LÕI"];
-      const missing = required.filter(r => !saved.includes(r));
-      return [...saved, ...missing];
-    });
+    setKpiDefs(safeParse('kpi_defs_v4', defaultKpis));
     setUserActuals(safeParse('user_actuals_v4', defaultUserActuals));
     setUserTargets(safeParse('user_targets_v4', defaultTargets));
     setDashboardCharts(safeParse('dashboard_charts_v1', defaultDashboardCharts));
     setGroupItems(safeParse('kpi_group_items_v1', []));
     setUsers(safeParse('kpi_users_v1', defaultUsers));
     setReports(safeParse('kpi_reports_v1', []));
+    setCustomColumns(safeParse('mbo_custom_cols_v1', []));
     setHiddenCols(safeParse('mbo_hidden_cols_v1', []));
     setUserSettings(safeParse('kpi_user_settings_v1', {
       theme: 'light',
@@ -523,8 +487,7 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
           working_days: k.workingDays,
           formula: k.formula,
           calculate_this_target: k.calculateThisTarget,
-          has_target: k.hasTarget,
-          custom_values: k.customValues
+          has_target: k.hasTarget
         })));
 
         // Actuals
@@ -545,17 +508,15 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
           target_value: t.targetValue
         })));
 
-        // NEW: Save Global UI Settings (Columns, etc.)
-        try {
-          await supabase.from('app_settings').upsert({
-            id: 'global_mbo_settings',
-            custom_columns: customColumns,
-            hidden_cols: hiddenCols,
-            updated_at: new Date().toISOString()
-          });
-        } catch (err) {
-          console.warn('Supabase app_settings table might be missing. Please create it.');
-        }
+        // Charts
+        await supabase.from('dashboard_charts').upsert(dashboardCharts.map(c => ({
+          id: c.id,
+          type: c.type,
+          kpi_id: c.kpiId,
+          kpi_ids: c.kpiIds,
+          title: c.title,
+          date_range: c.dateRange
+        })));
       }
 
       console.log('Data saved successfully');
@@ -565,8 +526,6 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
   };
 
   const loadFromDisk = async () => {
-    if (isLoadingRef.current) return;
-    isLoadingRef.current = true;
     try {
       // 1. Try Online Database first
       if (isOnline) {
@@ -576,15 +535,13 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
           { data: dbKpis },
           { data: dbActuals },
           { data: dbTargets },
-          { data: dbCharts },
-          { data: dbSettings }
+          { data: dbCharts }
         ] = await Promise.all([
           supabase.from('users').select('*'),
           supabase.from('kpi_definitions').select('*'),
           supabase.from('user_actuals').select('*'),
           supabase.from('user_targets').select('*'),
-          supabase.from('dashboard_charts').select('*'),
-          supabase.from('app_settings').select('*').eq('id', 'global_mbo_settings').single()
+          supabase.from('dashboard_charts').select('*')
         ]);
 
         if (dbUsers && dbUsers.length > 0) {
@@ -616,14 +573,8 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
             workingDays: k.working_days,
             formula: k.formula,
             calculateThisTarget: k.calculate_this_target,
-            hasTarget: k.has_target,
-            customValues: k.custom_values || {}
+            hasTarget: k.has_target
           })));
-        }
-
-        if (dbSettings) {
-          if (dbSettings.custom_columns) setCustomColumns(dbSettings.custom_columns);
-          if (dbSettings.hidden_cols) setHiddenCols(dbSettings.hidden_cols);
         }
 
         if (dbActuals) {
@@ -658,25 +609,14 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
         }
         
         console.log('Online data loaded');
-        // Do NOT return here, we still need to load local UI settings like columns if not in DB
+        return;
       }
 
-      // 2. Load Local Disk Settings & Fallback
+      // 2. Fallback to Local Disk
       const res = await fetch('/api/storage');
       if (res.ok) {
         const data = await res.json();
-        if (data.kpiDefs) {
-          setKpiDefs(prev => {
-            // Smart merge: Only update if server has data that local doesn't,
-            // or if local is currently default/empty.
-            const hasCustomData = prev.some(k => k.customValues && Object.keys(k.customValues).length > 0);
-            if (hasCustomData && (!data.kpiDefs.some((k: any) => k.customValues && Object.keys(k.customValues).length > 0))) {
-              console.log('Preserving local custom data, skipping server overwrite.');
-              return prev;
-            }
-            return data.kpiDefs;
-          });
-        }
+        if (data.kpiDefs) setKpiDefs(data.kpiDefs);
         if (data.userActuals) setUserActuals(data.userActuals);
         if (data.userTargets) setUserTargets(data.userTargets);
         if (data.dashboardCharts) setDashboardCharts(data.dashboardCharts);
@@ -687,18 +627,16 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
         if (data.userSettings) setUserSettings(data.userSettings);
         if (data.customColumns) setCustomColumns(data.customColumns);
         if (data.hiddenCols) setHiddenCols(data.hiddenCols);
-        console.log('Local data and settings merged');
+        console.log('Local data loaded');
       }
     } catch (e) {
       console.warn('Failed to load data', e);
-    } finally {
-      isLoadingRef.current = false;
     }
   };
 
   // Auto-save to disk periodically or on hydration
   useEffect(() => {
-    if (isHydrated && !isLoadingRef.current) {
+    if (isHydrated) {
       const timer = setTimeout(() => {
         saveToDisk();
       }, 2000); // Debounce save to disk
@@ -897,10 +835,10 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function useKPI() {
+export const useKPI = () => {
   const context = useContext(KPIContext);
   if (context === undefined) {
     throw new Error('useKPI must be used within a KPIProvider');
   }
   return context;
-}
+};

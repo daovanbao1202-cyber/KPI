@@ -31,14 +31,14 @@ export default function ViewSelector() {
     }
   }, [userRole, currentUser?.id, viewLevel, viewFilter]); // Stable dependencies
 
-  const handleLevelChange = (level: 'Company' | 'Department' | 'Individual' | 'MBO') => {
-    if (userRole === 'User' && (level !== 'Individual' && level !== 'MBO')) return;
+  const handleLevelChange = (level: 'Company' | 'Department' | 'Individual') => {
+    if (userRole === 'User' && (level !== 'Individual')) return;
     if (userRole === 'Manager' && level === 'Company') return;
 
     setViewLevel(level);
     if (level === 'Company') setViewFilter('All');
     if (level === 'Department') setViewFilter(currentUser?.department || departments[0] || 'Unassigned');
-    if (level === 'Individual' || level === 'MBO') setViewFilter(currentUser?.id || 1);
+    if (level === 'Individual') setViewFilter(currentUser?.id || 1);
   };
 
   return (
@@ -69,14 +69,6 @@ export default function ViewSelector() {
           <User size={14} /> Individual
         </button>
 
-        {userRole !== 'User' && (
-          <button 
-            onClick={() => handleLevelChange('MBO')}
-            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-2 ${viewLevel === 'MBO' ? 'bg-white text-[#555cf8] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            <div className="w-4 h-4 rounded-sm bg-[#555cf8]/10 flex items-center justify-center text-[#555cf8] font-black text-[9px]">M</div> MBO
-          </button>
-        )}
       </div>
       
       {viewLevel !== 'Company' && userRole !== 'User' && (
@@ -89,7 +81,7 @@ export default function ViewSelector() {
               value={String(viewFilter)}
               onChange={(e) => {
                 const val = e.target.value;
-                const isIndividual = viewLevel === 'Individual' || viewLevel === 'MBO';
+                const isIndividual = viewLevel === 'Individual';
                 setViewFilter(isIndividual ? Number(val) : val);
               }}
               className="w-full bg-white text-gray-700 pl-4 pr-10 py-1.5 rounded-lg border border-gray-200 text-[12px] font-bold shadow-sm cursor-pointer hover:border-gray-300 outline-none transition-all focus:ring-2 focus:ring-[#555cf8]/20"
