@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/notifications/check-kpi",
+      "schedule": "0 1 26 * *"
+    }
+  ]
+}

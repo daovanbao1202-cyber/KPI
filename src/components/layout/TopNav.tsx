@@ -10,6 +10,7 @@ import {
   LayoutGrid, Share2, Menu, X
 } from 'lucide-react';
 import { useKPI } from '@/context/KPIContext';
+import NotificationBell from './NotificationBell';
 import UserProfileModal from './UserProfileModal';
 
 const mainNav = [
@@ -118,6 +119,8 @@ export default function TopNav() {
           <button className="text-xs font-bold text-orange-500 border border-orange-200 px-4 py-1.5 rounded-md hover:bg-orange-50 transition-colors hidden sm:block">Update Plan</button>
           <div className="h-6 w-px bg-gray-200 hidden sm:block"></div>
           
+          <NotificationBell />
+
           <div className="relative">
             <button 
               onClick={() => setIsProfileOpen(!isProfileOpen)}
