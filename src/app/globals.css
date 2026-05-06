@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  
+  /* Brand Colors */
+  --color-brand-primary: #555cf8;
+  --color-brand-secondary: #82aecd;
+  --color-brand-accent: #f59e0b;
+  
+  /* Backgrounds */
+  --color-bg-light: #f4f5f8;
+  --color-bg-dark: #0f172a;
+  
+  /* Glassmorphism utility colors */
+  --color-glass-white: rgba(255, 255, 255, 0.7);
+  --color-glass-dark: rgba(30, 41, 59, 0.7);
+}
+
+@layer base {
+  body {
+    background-color: var(--color-bg-light);
+    color: #1e293b;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1), color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .dark body {
+    background-color: var(--color-bg-dark);
+    color: #f8fafc;
+  }
+}
+
+@layer components {
+  /* Glassmorphism Card */
+  .glass-card {
+    @apply backdrop-blur-md bg-white/70 border border-white/20 shadow-xl;
+  }
+  
+  .dark .glass-card {
+    @apply bg-slate-800/60 border-slate-700/50 shadow-2xl shadow-black/20;
+  }
+
+  /* Interactive Elements */
+  .interactive-hover {
+    @apply transition-all duration-300 hover:scale-[1.02] hover:shadow-lg active:scale-[0.98];
+  }
+
+  /* Custom Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-200 rounded-full;
+  }
+  
+  .dark ::-webkit-scrollbar-thumb {
+    @apply bg-slate-700;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-300;
+  }
+}
+
+/* Animations */
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+/* Global Dark Mode Overrides for Legacy Classes */
+.dark .bg-white {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+}
+
+.dark .text-gray-800 {
+  color: #f1f5f9 !important;
+}
+
+.dark .text-gray-600, .dark .text-gray-500 {
+  color: #94a3b8 !important;
+}
+
+.dark .border-gray-100, .dark .border-gray-200, .dark .border-gray-50 {
+  border-color: #334155 !important;
+}
+
+.dark .bg-gray-50, .dark .bg-\[#f8fafc\] {
+  background-color: #0f172a !important;
+}
+
+.dark input, .dark select, .dark textarea {
+  @apply bg-slate-800 text-slate-100 border-slate-700 focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20;
+}
