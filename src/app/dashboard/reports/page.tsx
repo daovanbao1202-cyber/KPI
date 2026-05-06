@@ -238,7 +238,6 @@ export default function ReportsPage() {
       // 5. Save file
       const fileName = `Top_Performing_KPIs_${now.toISOString().split('T')[0]}.xlsx`;
       XLSX.writeFile(wb, fileName);
-      
     } catch (err) {
       console.error("Excel Styled Export Error:", err);
       alert("Lỗi khi xuất File Excel formatted.");
@@ -386,67 +385,68 @@ export default function ReportsPage() {
                      </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                   {reportData.map((item) => (
-                      <tr key={item.id} className="hover:bg-gray-50/50 transition-colors">
-                         <td className="py-5">
-                            <div className="w-7 h-7 bg-[#f1f5f9] rounded text-[12px] font-bold text-gray-400 flex items-center justify-center print-bg-light">{item.index}</div>
-                         </td>
-                         <td className="py-5">
-                            <div className="flex items-center gap-3">
-                               <span className="text-xl">{item.icon || '🎯'}</span>
-                               <span className="font-bold text-[14px] text-gray-700">{item.name}</span>
-                            </div>
-                         </td>
-                         <td className="py-5 text-center text-gray-400 text-[13px] font-medium">{item.frequency}</td>
-                         <td className="py-5 text-right pr-8 font-bold text-[14px] text-[#38bdf8] text-print-blue">{item.actual.toLocaleString()}</td>
-                         <td className="py-5 text-right pr-6 font-bold text-[14px] text-[#84cc16] text-print-green">{item.target.toLocaleString()}</td>
-                         <td className="py-5 text-center">
-                            <div className="flex items-center justify-center gap-2">
-                               {!item.isPositive && (
-                                 <svg width="14" height="18" viewBox="0 0 12 16" className="shrink-0">
-                                   <path d="M6 16L0 9H4V0H8V9H12L6 16Z" fill="#b91c1c" />
-                                 </svg>
-                               )}
-                               {item.isPositive && item.diffPct > 0 && (
-                                 <svg width="14" height="18" viewBox="0 0 12 16" className="shrink-0 rotate-180">
-                                   <path d="M6 16L0 9H4V0H8V9H12L6 16Z" fill="#15803d" />
-                                 </svg>
-                               )}
-                               <span className={`text-[24px] font-medium leading-none ${!item.isPositive ? 'text-[#b91c1c]' : (item.diffPct === 0 ? 'text-gray-700' : 'text-[#15803d]')}`}>
-                                 {item.isPositive ? `${item.diffPct}%` : `-${item.diffPct}%`}
-                               </span>
-                            </div>
-                         </td>
-                         <td className="py-5 text-right">
-                             <div className="inline-block w-[130px] h-[40px]">
-                                <ResponsiveContainer width="100%" height="100%">
-                                   <AreaChart data={item.history} margin={{ top: 2, right: 2, left: 2, bottom: 2 }}>
-                                      <Area 
-                                        type="linear" 
-                                        dataKey="actual" 
-                                        stroke="#1890ff" 
-                                        fill="#91d5ff" 
-                                        fillOpacity={0.5} 
-                                        strokeWidth={1.5}
-                                        dot={{ r: 1.2, fill: '#1890ff', strokeWidth: 0 }}
-                                        isAnimationActive={false}
-                                      />
-                                      <Line 
-                                        type="linear" 
-                                        dataKey="target" 
-                                        stroke="#72c040" 
-                                        strokeWidth={1.2} 
-                                        dot={{ r: 1.2, fill: '#72c040', strokeWidth: 0 }}
-                                        isAnimationActive={false}
-                                      />
-                                   </AreaChart>
-                                </ResponsiveContainer>
-                             </div>
-                          </td>
-                      </tr>
-                   ))}
-                </tbody>
-             </table>
+                     {reportData.map((item) => (
+                        <tr key={item.id} className="hover:bg-gray-50/50 transition-colors">
+                           <td className="py-5">
+                              <div className="w-7 h-7 bg-[#f1f5f9] rounded text-[12px] font-bold text-gray-400 flex items-center justify-center print-bg-light">{item.index}</div>
+                           </td>
+                           <td className="py-5">
+                              <div className="flex items-center gap-3">
+                                 <span className="text-xl">{item.icon || '🎯'}</span>
+                                 <span className="font-bold text-[14px] text-gray-700">{item.name}</span>
+                              </div>
+                           </td>
+                           <td className="py-5 text-center text-gray-400 text-[13px] font-medium">{item.frequency}</td>
+                           <td className="py-5 text-right pr-8 font-bold text-[14px] text-[#38bdf8] text-print-blue">{item.actual.toLocaleString()}</td>
+                           <td className="py-5 text-right pr-6 font-bold text-[14px] text-[#84cc16] text-print-green">{item.target.toLocaleString()}</td>
+                           <td className="py-5 text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                 {!item.isPositive && (
+                                   <svg width="14" height="18" viewBox="0 0 12 16" className="shrink-0">
+                                     <path d="M6 16L0 9H4V0H8V9H12L6 16Z" fill="#b91c1c" />
+                                   </svg>
+                                 )}
+                                 {item.isPositive && item.diffPct > 0 && (
+                                   <svg width="14" height="18" viewBox="0 0 12 16" className="shrink-0 rotate-180">
+                                     <path d="M6 16L0 9H4V0H8V9H12L6 16Z" fill="#15803d" />
+                                   </svg>
+                                 )}
+                                 <span className={`text-[24px] font-medium leading-none ${!item.isPositive ? 'text-[#b91c1c]' : (item.diffPct === 0 ? 'text-gray-700' : 'text-[#15803d]')}`}>
+                                   {item.isPositive ? `${item.diffPct}%` : `-${item.diffPct}%`}
+                                 </span>
+                              </div>
+                           </td>
+                           <td className="py-5 text-right">
+                               <div className="inline-block w-[130px] h-[40px]">
+                                  <ResponsiveContainer width="100%" height="100%">
+                                     <AreaChart data={item.history} margin={{ top: 2, right: 2, left: 2, bottom: 2 }}>
+                                        <Area 
+                                          type="linear" 
+                                          dataKey="actual" 
+                                          stroke="#1890ff" 
+                                          fill="#91d5ff" 
+                                          fillOpacity={0.5} 
+                                          strokeWidth={1.5}
+                                          dot={{ r: 1.2, fill: '#1890ff', strokeWidth: 0 }}
+                                          isAnimationActive={false}
+                                        />
+                                        <Line 
+                                          type="linear" 
+                                          dataKey="target" 
+                                          stroke="#72c040" 
+                                          strokeWidth={1.2} 
+                                          dot={{ r: 1.2, fill: '#72c040', strokeWidth: 0 }}
+                                          isAnimationActive={false}
+                                        />
+                                     </AreaChart>
+                                  </ResponsiveContainer>
+                               </div>
+                            </td>
+                        </tr>
+                     ))}
+                  </tbody>
+               </table>
+             </div>
           </div>
 
           <div className="bg-[#f0f2f6] rounded-b-lg border-x border-b border-gray-200 px-6 py-3 flex items-center justify-between -mt-px relative z-10 no-print">
