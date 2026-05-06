@@ -9,7 +9,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { useKPI } from '@/context/KPIContext';
 import { useEffect } from 'react';
-import * as XLSX from 'xlsx/xlsx.mjs';
+import * as XLSX from 'xlsx';
 import { ResponsiveContainer, AreaChart, Area, Line } from 'recharts';
 import DateRangeSelector from '@/components/common/DateRangeSelector';
 import ViewSelector from '@/components/dashboard/ViewSelector';
