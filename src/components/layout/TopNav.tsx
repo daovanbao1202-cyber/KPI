@@ -7,7 +7,7 @@ import {
   Target, Database, LayoutDashboard, FileText, 
   Activity, Users, Settings, UserCircle, 
   HelpCircle, Network, LogOut, ChevronDown,
-  LayoutGrid, Share2, Menu, X
+  LayoutGrid, Share2, Menu, X, RefreshCw
 } from 'lucide-react';
 import { useKPI } from '@/context/KPIContext';
 import NotificationBell from './NotificationBell';
