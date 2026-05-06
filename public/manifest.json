@@ -8,9 +8,9 @@
   "theme_color": "#555cf8",
   "icons": [
     {
-      "src": "/icon.png",
+      "src": "/kpi_app_icon_1778028960513.jpg",
       "sizes": "512x512",
-      "type": "image/png",
+      "type": "image/jpeg",
       "purpose": "any maskable"
     }
   ]
