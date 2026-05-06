@@ -252,8 +252,8 @@ export default function AnalyticsPage() {
       <ViewSelector />
 
       <div className="flex flex-1 min-h-0">
-        {/* Left Sidebar - Views Navigation */}
-        <div className="w-[240px] bg-[#f8fafc] border-r border-[#e2e8f0] flex flex-col shrink-0">
+        {/* Left Sidebar - Views Navigation - Hidden on mobile */}
+        <div className="hidden md:flex w-[240px] bg-[#f8fafc] border-r border-[#e2e8f0] flex flex-col shrink-0">
            <div className="p-4 py-3 border-b border-gray-200 flex items-center justify-between hover:bg-gray-50 cursor-pointer">
               <span className="font-bold text-[13px] text-gray-500 flex items-center gap-2"><LayoutGrid size={14} /> Analytics</span>
            </div>
@@ -283,11 +283,11 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Main Content Area */}
-        <div className="flex-1 flex flex-col min-w-0 h-full overflow-y-auto bg-white p-8">
+        <div className="flex-1 flex flex-col min-w-0 h-full overflow-y-auto bg-white p-3 md:p-8">
            
            {/* Page Title */}
-           <div className="flex items-center justify-between mb-6">
-              <h1 className="text-[28px] font-black text-gray-800 tracking-tight">{selectedViewName}</h1>
+           <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
+              <h1 className="text-[24px] md:text-[28px] font-black text-gray-800 tracking-tight">{selectedViewName}</h1>
               <div className="flex gap-2">
                  <button 
                   onClick={() => { setNewViewName(selectedViewName); setIsEditMode(true); setIsAddViewModalOpen(true); }}
@@ -386,7 +386,7 @@ export default function AnalyticsPage() {
            </div>
 
            {/* Toolbar */}
-           <div className="flex items-center justify-between mb-4 border-b border-gray-50 pb-4">
+           <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 border-b border-gray-50 pb-4 gap-4">
               <div className="flex items-center gap-4">
                  <span className="text-[11px] text-gray-400 font-bold uppercase tracking-widest">Filter by:</span>
                  <div className="flex items-center gap-2">
@@ -398,8 +398,8 @@ export default function AnalyticsPage() {
                     </div>
                  </div>
               </div>
-              <div className="flex items-center gap-3">
-                 <span className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mr-1">Options:</span>
+              <div className="flex items-center justify-between md:justify-end gap-3">
+                 <span className="hidden md:inline text-[11px] text-gray-400 font-bold uppercase tracking-widest mr-1">Options:</span>
                  <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-lg border border-gray-100">
                     <button className="p-1.5 text-gray-400 hover:text-[#555cf8] hover:bg-white hover:shadow-sm rounded transition-all"><Monitor size={14} /></button>
                     <button className="p-1.5 text-[#555cf8] bg-white shadow-sm rounded transition-all"><LayoutGrid size={14} /></button>
@@ -480,9 +480,9 @@ export default function AnalyticsPage() {
                  <h2 className="text-sm font-bold text-gray-700">{selectedKpi?.name} / {groups.find(g => g.id === selectedGroupId)?.name || 'Group 1'}</h2>
               </div>
               
-              <div className="flex min-h-[300px]">
-                 {/* Left List Pane */}
-                 <div className="w-[260px] border-r border-gray-100 bg-white">
+              <div className="flex flex-col md:flex-row min-h-[300px]">
+                 {/* Left List Pane - Responsive width */}
+                 <div className="w-full md:w-[260px] border-b md:border-b-0 md:border-r border-gray-100 bg-white">
                     <div className="px-4 py-2 text-[11px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-50">Groups</div>
                     <div className="p-1">
                        {groups.map(g => (
@@ -504,13 +504,13 @@ export default function AnalyticsPage() {
                  </div>
 
                  {/* Right Detail Pane */}
-                 <div className="flex-1 bg-[#fcfdfe]">
-                    <div className="px-6 py-2 border-b border-gray-100 bg-white flex items-center justify-between text-[11px] font-black text-gray-400 uppercase tracking-widest">
-                       <span>{groups.find(g => g.id === selectedGroupId)?.name || 'Group 1'}</span>
-                       <div className="flex items-center gap-12">
-                          <span className="w-16 text-right">Actual</span>
-                          <span className="w-16 text-right">Target</span>
-                          <span className="w-16 text-right">Target %</span>
+                 <div className="flex-1 bg-[#fcfdfe] overflow-hidden">
+                    <div className="px-6 py-2 border-b border-gray-100 bg-white flex items-center justify-between text-[11px] font-black text-gray-400 uppercase tracking-widest overflow-x-auto no-scrollbar">
+                       <span className="shrink-0">{groups.find(g => g.id === selectedGroupId)?.name || 'Group 1'}</span>
+                       <div className="flex items-center gap-6 md:gap-12 ml-4">
+                          <span className="w-14 md:w-16 text-right">Actual</span>
+                          <span className="w-14 md:w-16 text-right">Target</span>
+                          <span className="w-14 md:w-16 text-right">Target %</span>
                        </div>
                     </div>
                     <div className="p-4">
@@ -519,10 +519,10 @@ export default function AnalyticsPage() {
                              <div className="w-2 h-2 rounded-full bg-blue-400"></div>
                              <span className="text-xs font-bold text-gray-700">1. (Not Set)</span>
                           </div>
-                          <div className="flex items-center gap-12 text-[13px] font-black">
-                             <span className="w-16 text-right text-gray-800">{totalActual}</span>
-                             <span className="w-16 text-right text-gray-400 font-bold">{totalTarget}</span>
-                             <span className={`w-16 text-right ${pct >= 100 ? 'text-green-500' : 'text-red-500'}`}>{pct - 100}%</span>
+                          <div className="flex items-center gap-6 md:gap-12 text-[13px] font-black ml-4">
+                             <span className="w-14 md:w-16 text-right text-gray-800">{totalActual}</span>
+                             <span className="w-14 md:w-16 text-right text-gray-400 font-bold">{totalTarget}</span>
+                             <span className={`w-14 md:w-16 text-right ${pct >= 100 ? 'text-green-500' : 'text-red-500'}`}>{pct - 100}%</span>
                           </div>
                        </div>
                     </div>

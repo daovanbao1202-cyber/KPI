@@ -16,8 +16,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "KPI Management System",
   description: "Advanced KPI Tracking and Reporting Application",
-  manifest: "/manifest.json",
-  themeColor: "#555cf8",
+  manifest: '/manifest.json',
+  themeColor: '#555cf8',
+  viewport: 'width=device-width, initial-scale=1, maximum-scale=1',
 };
 
 export default function RootLayout({

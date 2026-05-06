@@ -252,8 +252,8 @@ export default function ReportsPage() {
   return (
     <div className="flex bg-[#f4f7fb] min-h-screen text-gray-700 font-sans overflow-hidden">
       
-      {/* Sidebar */}
-      <div className="w-[280px] bg-white border-r border-gray-200 flex flex-col shrink-0 h-[calc(100vh-64px)] overflow-y-auto no-print">
+      {/* Sidebar - Hidden on mobile, shown on medium screens and up */}
+      <div className="hidden md:flex w-[280px] bg-white border-r border-gray-200 flex flex-col shrink-0 h-[calc(100vh-64px)] overflow-y-auto no-print">
         <div className="p-4 py-3.5 flex items-center gap-2 mb-2">
           <FileText size={20} className="text-gray-400" />
           <span className="font-semibold text-[15px] text-gray-600">Reports</span>
@@ -302,7 +302,7 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        <div className="p-6 print-padding">
+        <div className="p-3 md:p-6 print-padding">
           
           <div className="mb-6 flex items-center justify-between no-print">
             <button 
@@ -312,7 +312,7 @@ export default function ReportsPage() {
               <SlidersHorizontal size={14} className="text-gray-400" /> Customize
             </button>
 
-            <div className="flex items-center gap-1 bg-white rounded border border-gray-200 p-1 shadow-sm">
+            <div className="flex items-center gap-1 bg-white rounded border border-gray-200 p-1 shadow-sm overflow-x-auto no-scrollbar">
               <button 
                 onClick={exportExcelStyle} 
                 className="p-1 px-[7px] hover:bg-gray-100 rounded text-gray-400 hover:text-[#555cf8] transition-colors" 
@@ -333,8 +333,8 @@ export default function ReportsPage() {
           </div>
 
           {/* Actual Report Content */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-10 min-h-[500px] print-no-shadow print-no-border">
-             <div className="flex items-center justify-between mb-8 no-print">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-4 md:p-10 min-h-[500px] print-no-shadow print-no-border overflow-hidden">
+             <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 no-print gap-4">
                <div>
                  <h2 className="text-[24px] font-medium text-gray-800 mb-1">Top Performing KPIs</h2>
                  <p className="text-[12px] font-medium text-gray-400 uppercase tracking-wider">
@@ -344,7 +344,7 @@ export default function ReportsPage() {
                <div className="relative no-print">
                   <div 
                     onClick={() => setIsDateDropdownOpen(!isDateDropdownOpen)}
-                    className="border border-gray-200 rounded-xl px-4 py-2.5 flex items-center justify-between bg-white text-gray-700 cursor-pointer shadow-sm hover:border-gray-400 transition-all min-w-[320px]"
+                    className="border border-gray-200 rounded-xl px-4 py-2.5 flex items-center justify-between bg-white text-gray-700 cursor-pointer shadow-sm hover:border-gray-400 transition-all w-full md:min-w-[320px]"
                   >
                      <span className="text-sm font-bold tracking-tight">
                        {new Date(dateRange.start).toLocaleDateString('vi-VN')} - {new Date(dateRange.end).toLocaleDateString('vi-VN')}
@@ -372,19 +372,20 @@ export default function ReportsPage() {
                <p className="text-[12px] font-medium text-gray-400 uppercase tracking-wider">{dateRange.start} - {dateRange.end}</p>
              </div>
 
-             <table className="w-full text-left">
-                <thead>
-                   <tr className="text-[12px] font-bold text-gray-400 border-b-2 border-transparent uppercase">
-                      <th className="pb-6 w-12 text-print-black"></th>
-                      <th className="pb-6 text-print-black"></th>
-                      <th className="pb-6 text-center text-print-black">Frequency</th>
-                      <th className="pb-6 text-right pr-8 text-[#38bdf8] text-print-blue">Actual</th>
-                      <th className="pb-6 text-right pr-6 text-[#84cc16] text-print-green">Target</th>
-                      <th className="pb-6 text-center w-28 text-print-black">Target %</th>
-                      <th className="pb-6 text-right w-24 text-print-black">Trend</th>
-                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
+             <div className="overflow-x-auto no-scrollbar">
+               <table className="w-full text-left min-w-[800px]">
+                  <thead>
+                     <tr className="text-[12px] font-bold text-gray-400 border-b-2 border-transparent uppercase">
+                        <th className="pb-6 w-12 text-print-black"></th>
+                        <th className="pb-6 text-print-black"></th>
+                        <th className="pb-6 text-center text-print-black">Frequency</th>
+                        <th className="pb-6 text-right pr-8 text-[#38bdf8] text-print-blue">Actual</th>
+                        <th className="pb-6 text-right pr-6 text-[#84cc16] text-print-green">Target</th>
+                        <th className="pb-6 text-center w-28 text-print-black">Target %</th>
+                        <th className="pb-6 text-right w-24 text-print-black">Trend</th>
+                     </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
                    {reportData.map((item) => (
                       <tr key={item.id} className="hover:bg-gray-50/50 transition-colors">
                          <td className="py-5">

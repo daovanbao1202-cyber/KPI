@@ -1,14 +1,14 @@
 {
-  "name": "KPI Management System",
-  "short_name": "KPI App",
-  "description": "Advanced KPI Tracking and Reporting Application",
-  "start_url": "/",
+  "name": "K-Pulse KPI Management",
+  "short_name": "K-Pulse",
+  "description": "Premium KPI Management Platform",
+  "start_url": "/dashboard",
   "display": "standalone",
-  "background_color": "#ffffff",
+  "background_color": "#f8fafc",
   "theme_color": "#555cf8",
   "icons": [
     {
-      "src": "/icon-512.png",
+      "src": "/icon.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
