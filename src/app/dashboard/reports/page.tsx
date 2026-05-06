@@ -356,9 +356,9 @@ export default function ReportsPage() {
                        <div className="fixed inset-0 z-40" onClick={() => setIsDateDropdownOpen(false)}></div>
                        <div className="absolute top-[110%] right-0 z-50 shadow-2xl bg-white rounded-2xl overflow-hidden border border-gray-100">
                           <DateRangeSelector
-                            initialStartDate={dateRange.start}
-                            initialEndDate={dateRange.end}
+                            currentRange={dateRange}
                             onApply={(res) => { setDateRange(res); setIsDateDropdownOpen(false); }}
+                            onCancel={() => setIsDateDropdownOpen(false)}
                           />
                        </div>
                     </>
