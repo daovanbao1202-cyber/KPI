@@ -480,10 +480,10 @@ export default function UsersPage() {
                    <div>
                      <h3 className="text-[17px] font-normal text-[#555cf8] mb-4">Role</h3>
                      <div className="space-y-3">
-                        {['User', 'Manager', 'Director', 'Admin'].map(r => (
+                        {['User', 'Manager', 'Admin'].map(r => (
                           <label key={r} className="flex items-center gap-3 cursor-pointer group">
                              <div className="relative flex items-center justify-center">
-                               <input type="radio" name="role" value={r} checked={addForm.role === r} onChange={() => setAddForm({...addForm, role: r})} className="peer appearance-none w-5 h-5 border border-gray-300 rounded-full checked:border-[#0ea5e9] transition-colors" />
+                               <input type="radio" name="role" value={r} checked={addForm.role === r} onChange={() => setAddForm({...addForm, role: r as 'Admin' | 'Manager' | 'User'})} className="peer appearance-none w-5 h-5 border border-gray-300 rounded-full checked:border-[#0ea5e9] transition-colors" />
                                {addForm.role === r && <div className="absolute w-2.5 h-2.5 bg-[#0ea5e9] rounded-full pointer-events-none"></div>}
                              </div>
                              <span className="text-[13px] text-[#334155] font-medium">{r}</span>
