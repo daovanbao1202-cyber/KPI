@@ -1,4 +1,4 @@
-import { isOnline } from './supabase';
+import { isOnline, supabase } from './supabase';
 import { supabaseAdmin } from './supabase-admin';
 import { DATA_FILE, readLocalData, writeJsonFile } from './local-store';
 
@@ -75,6 +75,39 @@ async function readLocalUsers(): Promise<ServerUser[]> {
   return users.map(fromLocalRecord);
 }
 
+/**
+ * Selects user rows, preferring the service-role client.
+ *
+ * A bad or missing SUPABASE_SERVICE_ROLE_KEY used to fail straight through to
+ * the local JSON file, which does not exist on a serverless host — so every
+ * sign-in reported "wrong password" with nothing in between to explain it.
+ * Retry with the anon client instead, and say loudly what happened.
+ */
+async function selectUserRows(columns: string): Promise<UserRow[] | null> {
+  const { data, error } = await supabaseAdmin.from('users').select(columns);
+  if (!error && data) return data as unknown as UserRow[];
+
+  // Let the caller handle a missing column; anything else is a client problem.
+  if (error && /password_hash/i.test(error.message)) throw error;
+
+  console.error('Supabase user lookup with the service-role client failed', error);
+
+  if (supabaseAdmin !== supabase) {
+    const fallback = await supabase.from('users').select(columns);
+    if (!fallback.error && fallback.data) {
+      console.warn(
+        'Recovered using the anon key. SUPABASE_SERVICE_ROLE_KEY looks invalid — ' +
+          'fix it before revoking password_hash from the anon role.'
+      );
+      return fallback.data as unknown as UserRow[];
+    }
+    if (fallback.error && /password_hash/i.test(fallback.error.message)) throw fallback.error;
+    console.error('Supabase user lookup with the anon client also failed', fallback.error);
+  }
+
+  return null;
+}
+
 export async function findUserByEmail(email: string): Promise<ServerUser | null> {
   const target = normalizeEmail(email);
 
@@ -83,17 +116,18 @@ export async function findUserByEmail(email: string): Promise<ServerUser | null>
       ? 'id, first_name, last_name, email, role, department, position'
       : 'id, first_name, last_name, email, role, department, position, password_hash';
 
-    const { data, error } = await supabaseAdmin.from('users').select(columns);
-
-    if (error) {
+    let rows: UserRow[] | null = null;
+    try {
+      rows = await selectUserRows(columns);
+    } catch {
       // Undefined column -> the SQL migration has not been applied yet.
-      if (/password_hash/i.test(error.message)) {
+      if (!passwordColumnMissing) {
         passwordColumnMissing = true;
         return findUserByEmail(email);
       }
-      console.error('Supabase user lookup failed', error);
-    } else if (data) {
-      const rows = data as unknown as UserRow[];
+    }
+
+    if (rows) {
       const match = rows.find((row) => normalizeEmail(String(row.email ?? '')) === target);
       if (match) {
         const user = fromSupabaseRow(match);
@@ -112,11 +146,14 @@ export async function findUserByEmail(email: string): Promise<ServerUser | null>
 
 export async function listUsers(): Promise<ServerUser[]> {
   if (isOnline) {
-    const { data, error } = await supabaseAdmin
-      .from('users')
-      .select('id, first_name, last_name, email, role, department, position');
-    if (!error && data) return (data as UserRow[]).map(fromSupabaseRow);
-    if (error) console.error('Supabase user listing failed', error);
+    try {
+      const rows = await selectUserRows(
+        'id, first_name, last_name, email, role, department, position'
+      );
+      if (rows) return rows.map(fromSupabaseRow);
+    } catch (error) {
+      console.error('Supabase user listing failed', error);
+    }
   }
   return readLocalUsers();
 }
@@ -126,10 +163,20 @@ export async function saveUserPassword(userId: number, passwordHash: string): Pr
   let persisted = false;
 
   if (isOnline && !passwordColumnMissing) {
-    const { error } = await supabaseAdmin
+    let { error } = await supabaseAdmin
       .from('users')
       .update({ password_hash: passwordHash })
       .eq('id', userId);
+
+    // Same fallback as reads: a broken service-role key must not silently
+    // discard the new password.
+    if (error && !/password_hash/i.test(error.message) && supabaseAdmin !== supabase) {
+      console.error('Password write with the service-role client failed', error);
+      ({ error } = await supabase
+        .from('users')
+        .update({ password_hash: passwordHash })
+        .eq('id', userId));
+    }
 
     if (error) {
       if (/password_hash/i.test(error.message)) {
