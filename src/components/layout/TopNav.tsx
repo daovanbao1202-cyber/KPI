@@ -7,11 +7,13 @@ import {
   Target, Database, LayoutDashboard, FileText, 
   Activity, Users, Settings, UserCircle, 
   HelpCircle, Network, LogOut, ChevronDown,
-  LayoutGrid, Share2, Menu, X, RefreshCw
+  LayoutGrid, Share2, Menu, X, RefreshCw, Rocket
 } from 'lucide-react';
 import { useKPI } from '@/context/KPIContext';
 import NotificationBell from './NotificationBell';
 import UserProfileModal from './UserProfileModal';
+import SendNotificationModal from './SendNotificationModal';
+
 
 const mainNav = [
   { name: 'KPIs', href: '/dashboard/kpis', icon: Target, roles: ['Admin'] },
@@ -20,6 +22,7 @@ const mainNav = [
   { name: 'Reports', href: '/dashboard/reports', icon: FileText, roles: ['Admin', 'Manager'] },
   { name: 'Analytics', href: '/dashboard/analytics', icon: Activity, roles: ['Admin', 'Manager', 'User'] },
   { name: 'MBO', href: '/dashboard/mbo', icon: LayoutGrid, roles: ['Admin', 'Manager', 'User'] },
+  { name: 'ACTION/PLAN', href: '/dashboard/action-plan', icon: Rocket, roles: ['Admin', 'Manager', 'User'] },
   { name: 'Users', href: '/dashboard/users', icon: Users, roles: ['Admin'] },
   { name: 'Org Chart', href: '/dashboard/org-chart', icon: Network, roles: ['Admin', 'Manager', 'User'] },
 ];
@@ -29,16 +32,18 @@ export default function TopNav() {
   const router = useRouter();
   const { 
     currentUser, logout, users, 
-    viewLevel, setViewLevel, 
-    viewFilter, setViewFilter,
-    userSettings, updateUserSettings
-  } = useKPI();
+    viewLevel, setViewLevel,     viewFilter, setViewFilter,
+     userSettings, updateUserSettings,
+     loadFromDisk, isLoadingCloud
+   } = useKPI();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [modalType, setModalType] = useState<'profile' | 'settings' | null>(null);
+  const [isSendNotificationOpen, setIsSendNotificationOpen] = useState(false);
 
-  const handleLogout = () => {
-    logout();
+
+  const handleLogout = async () => {
+    await logout();
     router.push('/login');
   };
 
@@ -64,6 +69,7 @@ export default function TopNav() {
                <div className="absolute top-0 left-1/2 w-[2px] h-full bg-white -translate-x-1/2"></div>
              </div>
              <span className="text-[18px] sm:text-[20px] text-[#1e293b] tracking-wide font-serif truncate max-w-[120px] sm:max-w-none">DAEKHON VINA</span>
+             <span className="ml-2 px-1.5 py-0.5 bg-indigo-100 text-indigo-600 text-[9px] font-bold rounded-full">V2.2</span>
            </Link>
         </div>
         
@@ -122,16 +128,17 @@ export default function TopNav() {
           
           <NotificationBell />
 
+           <button 
+             onClick={() => loadFromDisk()}
+             className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-600 rounded-lg text-[11px] font-bold hover:bg-amber-100 transition-all border border-amber-100 mr-2"
+           >
+             <RefreshCw size={14} className={isLoadingCloud ? 'animate-spin' : ''} /> 
+             {isLoadingCloud ? 'ĐANG ĐỒNG BỘ...' : 'KHÔI PHỤC TỪ ĐÁM MÂY'}
+           </button>
+
           {currentUser?.role === 'Admin' && (
             <button 
-              onClick={async () => {
-                if (confirm('Gửi thông báo test đến tất cả User?')) {
-                  const res = await fetch('/api/notifications/check-kpi');
-                  const data = await res.json();
-                  if (data.success) alert('Đã gửi thông báo test thành công!');
-                  else alert('Lỗi: ' + data.error);
-                }
-              }}
+              onClick={() => setIsSendNotificationOpen(true)}
               className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-[11px] font-bold hover:bg-indigo-100 transition-all border border-indigo-100"
             >
               <RefreshCw size={14} /> Test Notify
@@ -314,6 +321,11 @@ export default function TopNav() {
         isOpen={!!modalType} 
         onClose={() => setModalType(null)} 
         type={modalType || 'profile'} 
+      />
+
+      <SendNotificationModal
+        isOpen={isSendNotificationOpen}
+        onClose={() => setIsSendNotificationOpen(false)}
       />
     </div>
   );

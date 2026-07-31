@@ -20,8 +20,8 @@ export default function AdvancedDatePicker({ currentRange, onApply }: AdvancedDa
   // Quick select logic
   const handleQuickSelect = (type: string) => {
     const today = new Date();
-    let start = new Date();
-    let end = new Date();
+    const start = new Date();
+    const end = new Date();
 
     if (type === 'Today') {
       // both today

@@ -10,8 +10,39 @@ interface DataGridProps {
   highlightKpiId?: string;
 }
 
+const TrendSparkline = ({ kpiId, dates, rowTarget, getActualVal }: { kpiId: string; dates: any[]; rowTarget: number; getActualVal: (kpiId: string, date: string) => number }) => {
+  return (
+    <div className="flex items-end justify-between gap-1 h-[96px] w-[90px] px-2.5 py-2 bg-slate-50 border border-slate-100 rounded-xl relative overflow-hidden shadow-inner group/trend" title="Xu hướng">
+      {/* Target line (horizontal green line in the middle) */}
+      <div className="absolute left-0 right-0 border-t-2 border-dashed border-green-500/60 top-1/2 -translate-y-1/2 z-10" />
+      
+      {dates.map((d, index) => {
+        const actual = getActualVal(kpiId, d.key);
+        // Calculate height percentage relative to target * 1.5
+        const maxVal = rowTarget * 1.5 || 10;
+        const heightPct = Math.min((actual / maxVal) * 100, 100);
+        const reachedTarget = actual >= rowTarget;
+        
+        return (
+          <div 
+            key={index} 
+            style={{ height: `${Math.max(heightPct, 15)}%` }} 
+            className="w-2 rounded-t-sm transition-all duration-300 relative group"
+          >
+            <div className={`w-full h-full rounded-t-sm ${reachedTarget ? 'bg-[#38bdf8]' : 'bg-red-500'}`} />
+            {/* Tooltip on hover */}
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-slate-800 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow z-20 whitespace-nowrap">
+              {d.label}: {actual}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 export default function DataGrid({ frequency = 'daily', highlightKpiId }: DataGridProps) {
-  const { loggedInUserId, kpiDefs, userTargets, userActuals, updateUserActual, reports, setTarget, currentUser, users } = useKPI();
+  const { loggedInUserId, kpiDefs, userTargets, userActuals, updateUserActual, reports, setTarget, currentUser, users, saveToDisk } = useKPI();
   const highlightedRowRef = useRef<HTMLDivElement>(null);
   const [isSaved, setIsSaved] = useState(false);
   const [activeReportModal, setActiveReportModal] = useState<{ kpiId: string; dateKey: string; label: string } | null>(null);
@@ -32,6 +63,7 @@ export default function DataGrid({ frequency = 'daily', highlightKpiId }: DataGr
   const generateDates = () => {
     const dates = [];
     const current = new Date(baseDate);
+    current.setDate(1); // Safe: prevent 31st day rollover bugs
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -43,7 +75,9 @@ export default function DataGrid({ frequency = 'daily', highlightKpiId }: DataGr
     // Shift back so baseDate is somewhere in the middle or at the end
     if (frequency === 'daily') current.setDate(current.getDate() - 3);
     else if (frequency === 'weekly') current.setDate(current.getDate() - 21);
-    else if (frequency === 'monthly') current.setMonth(current.getMonth() - 5);
+    else if (frequency === 'monthly') {
+      current.setMonth(0); // Always start from January of the year (2026)
+    }
     else if (frequency === 'yearly') current.setFullYear(current.getFullYear() - 4);
 
     for (let i = 0; i < count; i++) {
@@ -82,7 +116,7 @@ export default function DataGrid({ frequency = 'daily', highlightKpiId }: DataGr
     return dates;
   };
 
-  const dates = useMemo(generateDates, [baseDate, frequency]);
+  const dates = useMemo(() => generateDates(), [baseDate, frequency]);
 
   const handlePrev = () => {
     setBaseDate(prev => {
@@ -173,10 +207,14 @@ export default function DataGrid({ frequency = 'daily', highlightKpiId }: DataGr
     return a ? a.actualValue : 0;
   };
 
-  const handleSave = () => {
-    // Data is already saved in context/localStorage, but we provide visual feedback
-    setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 3000);
+  const handleSave = async () => {
+    try {
+      await saveToDisk();
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), 3000);
+    } catch (e) {
+      console.error('Failed to save data explicitly:', e);
+    }
   };
 
   return (
@@ -221,6 +259,9 @@ export default function DataGrid({ frequency = 'daily', highlightKpiId }: DataGr
             {/* Placeholder for Left Info Column */}
             <div className="w-[350px] shrink-0 border-r border-gray-200"></div>
             
+            {/* Trend Column Header */}
+            <div className="w-[120px] shrink-0 text-center py-2.5 border-r border-gray-200 font-black uppercase text-[11px] text-gray-500 flex items-center justify-center">Trend</div>
+            
             {/* Data Columns Header */}
             <div className="flex flex-1">
               {dates.map((d) => (
@@ -264,11 +305,17 @@ export default function DataGrid({ frequency = 'daily', highlightKpiId }: DataGr
                     <span className="text-[11px] text-gray-400 mt-0.5 font-medium">Unit: <span className="text-gray-600 bg-gray-100 px-1 rounded">{row.unit}</span></span>
                   </div>
                 </div>
-                {/* Labels Actual/Target */}
+                {/* Labels Actual/Target/% Target */}
                 <div className="flex flex-col gap-2 text-xs font-bold text-right w-16">
                   <span className="text-[#38bdf8] h-8 flex items-center justify-end">Actual</span>
                   <span className="text-[#84cc16] h-8 flex items-center justify-end">Target</span>
+                  <span className="text-[#6366f1] h-8 flex items-center justify-end">% Target</span>
                 </div>
+              </div>
+
+              {/* Trend Column Cell */}
+              <div className="w-[120px] shrink-0 p-4 py-5 flex items-center justify-center border-r border-gray-50 bg-gray-50/20">
+                <TrendSparkline kpiId={row.kpiId} dates={dates} rowTarget={Number(row.target)} getActualVal={getActualVal} />
               </div>
 
               {/* Data Columns */}
@@ -291,6 +338,9 @@ export default function DataGrid({ frequency = 'daily', highlightKpiId }: DataGr
                     const periodTarget = userTargets.find(t => t.kpiId === row.kpiId && t.userId === loggedInUserId && t.dateKey === d.key)?.targetValue;
                     displayTarget = periodTarget !== undefined ? periodTarget : Number(row.target);
                   }
+
+                  const percentage = displayTarget > 0 ? Math.round((currentActual / displayTarget) * 100) : 0;
+                  const isPositive = currentActual >= displayTarget;
 
                   return (
                     <div key={d.key} className={`flex flex-col gap-2 p-4 py-5 border-l border-gray-50 flex-1 min-w-[120px] ${isToday ? 'bg-blue-50/20' : ''}`}>
@@ -319,6 +369,11 @@ export default function DataGrid({ frequency = 'daily', highlightKpiId }: DataGr
                         className={`h-8 w-full border border-[#84cc16]/30 rounded bg-[#84cc16]/10 text-right px-3 text-sm font-bold text-[#65a30d] focus:outline-none focus:ring-1 focus:ring-[#84cc16]/50 placeholder-[#84cc16]/50 ${isRealAdmin ? 'opacity-80 cursor-not-allowed' : ''}`}
                         placeholder="0"
                       />
+                      <div className={`h-8 w-full border rounded px-3 flex items-center justify-end text-xs font-black transition-all ${
+                        isPositive ? 'border-green-200 text-green-600 bg-green-50/20' : 'border-red-200 text-red-500 bg-red-50/20'
+                      }`}>
+                        <span className="mr-1">{isPositive ? '⬆' : '⬇'}</span> {percentage}%
+                      </div>
                     </div>
                   );
                 })}

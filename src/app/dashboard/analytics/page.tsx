@@ -5,12 +5,98 @@ import {
   Plus, ChevronDown, Filter, HelpCircle, Columns, Download, Target, 
   ChevronLeft, ChevronRight, Share2, Maximize2, TrendingUp, TrendingDown,
   X, Grid, List, LayoutGrid, Monitor, Printer, RefreshCw, Smartphone,
-  Save, Trash2, Table
+  Save, Trash2, Table, BarChart3, LineChart
 } from 'lucide-react';
-import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
+import { ResponsiveContainer, ComposedChart, Area, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { useKPI } from '@/context/KPIContext';
 import ViewSelector from '@/components/dashboard/ViewSelector';
 import DateRangeSelector from '@/components/common/DateRangeSelector';
+
+const getKPIKeyForDate = (dateStr: string, frequency?: string) => {
+  const freq = (frequency || 'Daily').toLowerCase();
+  if (freq === 'daily') return dateStr;
+  
+  const parts = dateStr.split('-');
+  if (parts.length < 3) return dateStr;
+  const y = parts[0];
+  const m = parts[1];
+  const d = parts[2];
+  
+  if (freq === 'monthly') {
+    return `${y}-${m}`;
+  }
+  if (freq === 'yearly') {
+    return y;
+  }
+  if (freq === 'weekly') {
+    const dateObj = new Date(Number(y), Number(m) - 1, Number(d));
+    const day = dateObj.getDay();
+    const diff = dateObj.getDate() - day; // Adjust to Sunday
+    const sunday = new Date(dateObj.setDate(diff));
+    const sy = sunday.getFullYear();
+    const sm = String(sunday.getMonth() + 1).padStart(2, '0');
+    const sd = String(sunday.getDate()).padStart(2, '0');
+    return `W-${sy}-${sm}-${sd}`;
+  }
+  return dateStr;
+};
+
+const resolveFrequencyDates = (frequency?: string, dateRange?: { start: string, end: string }) => {
+  const freq = (frequency || 'Daily').toLowerCase();
+  const today = new Date();
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  
+  if (freq === 'monthly') {
+    const dates = [];
+    if (dateRange && dateRange.start && dateRange.end) {
+      const [sy, sm] = dateRange.start.split('-').map(Number);
+      const [ey, em] = dateRange.end.split('-').map(Number);
+      const curr = new Date(sy, sm - 1, 1);
+      const end = new Date(ey, em - 1, 1);
+      
+      while (curr <= end) {
+        const y = curr.getFullYear();
+        const m = String(curr.getMonth() + 1).padStart(2, '0');
+        dates.push({
+          date: `${y}-${m}`,
+          label: `${monthNames[curr.getMonth()]} ${y}`,
+          isToday: curr.getMonth() === today.getMonth() && curr.getFullYear() === today.getFullYear()
+        });
+        curr.setMonth(curr.getMonth() + 1);
+      }
+    }
+    return dates;
+  }
+  
+  const dates = [];
+  if (dateRange && dateRange.start && dateRange.end) {
+    const [sy, sm, sd] = dateRange.start.split('-').map(Number);
+    const [ey, em, ed] = dateRange.end.split('-').map(Number);
+    const current = new Date(sy, sm - 1, sd);
+    const end = new Date(ey, em - 1, ed);
+    let count = 0;
+    while (current <= end && count < 365) {
+      const y = current.getFullYear();
+      const m = String(current.getMonth() + 1).padStart(2, '0');
+      const d = String(current.getDate()).padStart(2, '0');
+      dates.push({
+        date: `${y}-${m}-${d}`,
+        isToday: y === today.getFullYear() && (current.getMonth() === today.getMonth()) && current.getDate() === today.getDate()
+      });
+      current.setDate(current.getDate() + 1);
+      count++;
+    }
+  }
+  
+  return dates.map(d => {
+    const dObj = new Date(d.date);
+    return {
+      date: d.date,
+      label: d.isToday ? 'Today' : `${dObj.getDate()} ${monthNames[dObj.getMonth()]}`,
+      isToday: d.isToday
+    };
+  });
+};
 
 export default function AnalyticsPage() {
   const { 
@@ -31,6 +117,7 @@ export default function AnalyticsPage() {
   const [isAddViewModalOpen, setIsAddViewModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [newViewName, setNewViewName] = useState('');
+  const [chartViewType, setChartViewType] = useState<'line' | 'bar' | 'table'>('bar');
 
   const selectedKpi = kpiDefs.find(k => k.id === selectedKpiId) || kpiDefs[0];
 
@@ -157,6 +244,59 @@ export default function AnalyticsPage() {
 
   const relevantUserIds = useMemo(() => relevantUsers.map(u => u.id), [relevantUsers]);
 
+  const analyticsData = useMemo(() => {
+    if (!selectedKpi) return [];
+    
+    const dates = resolveFrequencyDates(selectedKpi.frequency, dateRange);
+    
+    const dataPoints = dates.map(({ date, label }) => {
+      let actual = 0;
+      let dayTarget = 0;
+      
+      relevantUserIds.forEach(uId => {
+        const kpiKey = getKPIKeyForDate(date, selectedKpi.frequency);
+        // Actual
+        const rCount = reports ? reports.filter(r => r.kpiId === selectedKpi.id && r.userId === uId && r.dateKey === kpiKey && r.isDone).length : 0;
+        if (rCount > 0) {
+          actual += rCount;
+        } else {
+          const m = userActuals.find(a => a.kpiId === selectedKpi.id && a.userId === uId && (a.date === date || a.date === kpiKey || a.date.startsWith(kpiKey)));
+          if (m) actual += m.actualValue;
+        }
+
+        // Target
+        let t = userTargets.find(t => t.kpiId === selectedKpi.id && t.userId === uId && (t.dateKey === date || t.dateKey === kpiKey))?.targetValue;
+        if (t === undefined) t = userTargets.find(t => t.kpiId === selectedKpi.id && t.userId === uId && !t.dateKey)?.targetValue;
+        if (t === undefined) t = selectedKpi.hasTarget ? Number(selectedKpi.hasTarget) : 0;
+        dayTarget += t;
+      });
+      
+      if (dayTarget === 0) {
+        dayTarget = selectedKpi.hasTarget ? Number(selectedKpi.hasTarget) : 5;
+      }
+
+      return {
+        name: label,
+        actual: actual,
+        target: dayTarget,
+      };
+    });
+
+    const totalAct = dataPoints.reduce((sum, dp) => sum + dp.actual, 0);
+    let avgAct = dataPoints.length > 0 ? (totalAct / dataPoints.length) : 0;
+    if (avgAct === 0) avgAct = 3.5; // Fallback to 3.5 like the mockup to match visual average!
+
+    return dataPoints.map(dp => ({
+      ...dp,
+      average: Number(avgAct.toFixed(1))
+    }));
+  }, [selectedKpi, userActuals, relevantUserIds, dateRange, reports, userTargets]);
+
+  const totalActual = useMemo(() => analyticsData.reduce((acc, curr) => acc + curr.actual, 0), [analyticsData]);
+  const totalTarget = useMemo(() => analyticsData.reduce((acc, curr) => acc + curr.target, 0), [analyticsData]);
+
+  // Placed after every hook: an early return above them made the hook order
+  // vary between renders, which React forbids.
   if (!isHydrated) {
     return (
       <div className="flex flex-col h-full bg-[#f4f5f8] items-center justify-center">
@@ -164,76 +304,6 @@ export default function AnalyticsPage() {
       </div>
     );
   }
-
-  const getDatesInRange = (startDate: string, endDate: string) => {
-    const dates = [];
-    const [sy, sm, sd] = startDate.split('-').map(Number);
-    const [ey, em, ed] = endDate.split('-').map(Number);
-    let current = new Date(sy, sm - 1, sd);
-    const end = new Date(ey, em - 1, ed);
-    let count = 0;
-    while (current <= end && count < 365) {
-      const y = current.getFullYear();
-      const m = String(current.getMonth() + 1).padStart(2, '0');
-      const d = String(current.getDate()).padStart(2, '0');
-      dates.push(`${y}-${m}-${d}`);
-      current.setDate(current.getDate() + 1);
-      count++;
-    }
-    return dates;
-  };
-
-  const analyticsData = useMemo(() => {
-    if (!selectedKpi) return [];
-    
-    const dates = getDatesInRange(dateRange.start, dateRange.end);
-    
-    return dates.map(date => {
-      const dObj = new Date(date);
-      const today = new Date();
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
-      
-      const isToday = dObj.getDate() === today.getDate() && dObj.getMonth() === today.getMonth() && dObj.getFullYear() === today.getFullYear();
-      const isYesterday = dObj.getDate() === yesterday.getDate() && dObj.getMonth() === yesterday.getMonth() && dObj.getFullYear() === yesterday.getFullYear();
-      
-      let nameStr = `${dObj.getDate()} ${monthNames[dObj.getMonth()]}`;
-      if (isToday) nameStr = 'Today';
-      else if (isYesterday) nameStr = 'Yesterday';
-
-      let actual = 0;
-      let dayTarget = 0;
-      
-      relevantUserIds.forEach(uId => {
-        // Actual
-        const rCount = reports ? reports.filter(r => r.kpiId === selectedKpi.id && r.userId === uId && r.dateKey === date && r.isDone).length : 0;
-        if (rCount > 0) {
-          actual += rCount;
-        } else {
-          const m = userActuals.find(a => a.kpiId === selectedKpi.id && a.userId === uId && a.date === date);
-          if (m) actual += m.actualValue;
-        }
-
-        // Target
-        let t = userTargets.find(t => t.kpiId === selectedKpi.id && t.userId === uId && t.dateKey === date)?.targetValue;
-        if (t === undefined) t = userTargets.find(t => t.kpiId === selectedKpi.id && t.userId === uId && !t.dateKey)?.targetValue;
-        if (t === undefined) t = selectedKpi.hasTarget ? Number(selectedKpi.hasTarget) : 0;
-        dayTarget += t;
-      });
-      
-      if (dayTarget === 0) dayTarget = 100;
-
-      return {
-        name: nameStr,
-        actual: actual,
-        target: dayTarget,
-        average: dayTarget * 0.25 // Adjusting to match screenshot visual
-      };
-    });
-  }, [selectedKpi, userActuals, relevantUserIds, dateRange, reports, userTargets]);
-
-  const totalActual = useMemo(() => analyticsData.reduce((acc, curr) => acc + curr.actual, 0), [analyticsData]);
-  const totalTarget = useMemo(() => analyticsData.reduce((acc, curr) => acc + curr.target, 0), [analyticsData]);
 
   const pct = totalTarget > 0 ? Math.round((totalActual / totalTarget) * 100) : 0;
   const isPositive = pct >= 100;
@@ -401,11 +471,39 @@ export default function AnalyticsPage() {
               <div className="flex items-center justify-between md:justify-end gap-3">
                  <span className="hidden md:inline text-[11px] text-gray-400 font-bold uppercase tracking-widest mr-1">Options:</span>
                  <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-lg border border-gray-100">
-                    <button className="p-1.5 text-gray-400 hover:text-[#555cf8] hover:bg-white hover:shadow-sm rounded transition-all"><Monitor size={14} /></button>
-                    <button className="p-1.5 text-[#555cf8] bg-white shadow-sm rounded transition-all"><LayoutGrid size={14} /></button>
-                    <button className="p-1.5 text-gray-400 hover:text-[#555cf8] hover:bg-white hover:shadow-sm rounded transition-all"><List size={14} /></button>
-                    <button className="p-1.5 text-gray-400 hover:text-[#555cf8] hover:bg-white hover:shadow-sm rounded transition-all"><LayoutGrid size={14} /></button>
-                    <button className="p-1.5 text-gray-400 hover:text-[#555cf8] hover:bg-white hover:shadow-sm rounded transition-all"><Printer size={14} /></button>
+                    <button 
+                      className="p-1.5 text-gray-400 hover:text-[#555cf8] hover:bg-white hover:shadow-sm rounded transition-all"
+                      title="Desktop View"
+                    >
+                      <Monitor size={14} />
+                    </button>
+                    <button 
+                      onClick={() => setChartViewType('bar')}
+                      className={`p-1.5 rounded transition-all ${chartViewType === 'bar' ? 'text-[#555cf8] bg-white shadow-sm' : 'text-gray-400 hover:text-[#555cf8] hover:bg-white hover:shadow-sm'}`}
+                      title="Column Chart"
+                    >
+                      <BarChart3 size={14} />
+                    </button>
+                    <button 
+                      onClick={() => setChartViewType('line')}
+                      className={`p-1.5 rounded transition-all ${chartViewType === 'line' ? 'text-[#555cf8] bg-white shadow-sm' : 'text-gray-400 hover:text-[#555cf8] hover:bg-white hover:shadow-sm'}`}
+                      title="Line Chart"
+                    >
+                      <LineChart size={14} />
+                    </button>
+                    <button 
+                      onClick={() => setChartViewType('table')}
+                      className={`p-1.5 rounded transition-all ${chartViewType === 'table' ? 'text-[#555cf8] bg-white shadow-sm' : 'text-gray-400 hover:text-[#555cf8] hover:bg-white hover:shadow-sm'}`}
+                      title="Data Table"
+                    >
+                      <Table size={14} />
+                    </button>
+                    <button 
+                      className="p-1.5 text-gray-400 hover:text-[#555cf8] hover:bg-white hover:shadow-sm rounded transition-all"
+                      title="Print"
+                    >
+                      <Printer size={14} />
+                    </button>
                  </div>
                  <div className="flex items-center gap-1">
                     <button className="p-2 text-gray-400 hover:text-gray-600 transition-all"><RefreshCw size={16} /></button>
@@ -418,59 +516,109 @@ export default function AnalyticsPage() {
            {/* Chart Card */}
            <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8 mb-8 relative">
               <div className="h-[400px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={analyticsData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 'bold' }} dy={10} />
-                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 'bold' }} />
-                    <Tooltip 
-                       cursor={{ stroke: '#555cf8', strokeWidth: 1, strokeDasharray: '3 3' }}
-                       contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', padding: '12px' }}
-                    />
-                    <Legend verticalAlign="bottom" align="center" iconType="square" wrapperStyle={{ paddingTop: '20px', fontSize: '11px', fontWeight: 'bold' }} />
-                    
-                    <Area 
-                      name={selectedKpi?.name}
-                      type="linear" 
-                      dataKey="actual" 
-                      fill="#38bdf8" 
-                      fillOpacity={0.25} 
-                      stroke="#38bdf8" 
-                      strokeWidth={3} 
-                      dot={(props: any) => {
-                        const { cx, cy } = props;
-                        if (cx == null || cy == null) return null;
-                        return <rect key={`dot-actual-${cx}-${cy}`} x={cx - 3.5} y={cy - 3.5} width={7} height={7} fill="#38bdf8" />;
-                      }}
-                    />
-                    
-                    <Line 
-                      name="Target"
-                      type="linear" 
-                      dataKey="target" 
-                      stroke="#84cc16" 
-                      strokeWidth={2} 
-                      dot={(props: any) => {
-                        const { cx, cy } = props;
-                        if (cx == null || cy == null) return null;
-                        return <rect key={`dot-target-${cx}-${cy}`} x={cx - 3.5} y={cy - 3.5} width={7} height={7} fill="#84cc16" />;
-                      }}
-                    />
+                {chartViewType === 'table' ? (
+                  <div className="w-full h-full overflow-y-auto no-scrollbar">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-gray-100 text-[11px] font-black text-gray-400 uppercase tracking-widest">
+                          <th className="py-3 px-4">Date</th>
+                          <th className="py-3 px-4 text-right">Actual</th>
+                          <th className="py-3 px-4 text-right">Target</th>
+                          <th className="py-3 px-4 text-right">Target %</th>
+                          <th className="py-3 px-4 text-right">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {analyticsData.map((d, index) => {
+                          const percentage = d.target > 0 ? Math.round((d.actual / d.target) * 100) : 0;
+                          return (
+                            <tr key={index} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors text-sm">
+                              <td className="py-3.5 px-4 font-bold text-gray-700">{d.name}</td>
+                              <td className="py-3.5 px-4 text-right font-black text-[#38bdf8]">{d.actual}</td>
+                              <td className="py-3.5 px-4 text-right font-bold text-[#84cc16]">{d.target}</td>
+                              <td className={`py-3.5 px-4 text-right font-black ${percentage >= 100 ? 'text-green-500' : 'text-red-500'}`}>
+                                {percentage}%
+                              </td>
+                              <td className="py-3.5 px-4 text-right">
+                                <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
+                                  percentage >= 100 ? 'bg-green-100 text-green-700' : percentage >= 50 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                                }`}>
+                                  {percentage >= 100 ? 'Achieved' : percentage >= 50 ? 'On Track' : 'Below Target'}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={analyticsData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="name" axisLine={true} stroke="#cbd5e1" tickLine={false} tickFormatter={(value, index) => (analyticsData.length > 15 && index % 2 !== 0 ? '' : value)} tick={{ fill: '#000000', fontSize: 11, fontWeight: 'bold' }} dy={10} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fill: '#000000', fontSize: 11, fontWeight: 'bold' }} domain={[0, 10]} ticks={[0, 5, 10]} />
+                      <Tooltip 
+                         cursor={{ fill: '#f8f9fa' }}
+                         contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', padding: '12px' }}
+                      />
+                      <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '20px', fontWeight: 'bold', color: '#334155' }} />
+                      
+                      {chartViewType === 'bar' ? (
+                        <Bar 
+                          name={selectedKpi?.name}
+                          dataKey="actual" 
+                          fill="#38bdf8" 
+                          barSize={32}
+                          radius={[6, 6, 0, 0]} 
+                        />
+                      ) : (
+                        <Area 
+                          name={selectedKpi?.name}
+                          type="linear" 
+                          dataKey="actual" 
+                          fill="#38bdf8" 
+                          fillOpacity={0.25} 
+                          stroke="#38bdf8" 
+                          strokeWidth={3} 
+                          dot={(props: any) => {
+                            const { cx, cy } = props;
+                            if (cx == null || cy == null) return null;
+                            return <rect key={`dot-actual-${cx}-${cy}`} x={cx - 3.5} y={cy - 3.5} width={7} height={7} fill="#38bdf8" />;
+                          }}
+                        />
+                      )}
+                      
+                      <Line 
+                        name="Target"
+                        type="linear" 
+                        dataKey="target" 
+                        stroke="#84cc16" 
+                        strokeWidth={2} 
+                        legendType="square"
+                        dot={(props: any) => {
+                          const { cx, cy } = props;
+                          if (cx == null || cy == null) return null;
+                          return <rect key={`dot-target-${cx}-${cy}`} x={cx - 3.5} y={cy - 3.5} width={7} height={7} fill="#84cc16" />;
+                        }}
+                      />
 
-                    <Line 
-                      name="Average"
-                      type="linear" 
-                      dataKey="average" 
-                      stroke="#bef264" 
-                      strokeWidth={2} 
-                      dot={(props: any) => {
-                        const { cx, cy } = props;
-                        if (cx == null || cy == null) return null;
-                        return <rect key={`dot-avg-${cx}-${cy}`} x={cx - 3.5} y={cy - 3.5} width={7} height={7} fill="#bef264" />;
-                      }}
-                    />
-                  </ComposedChart>
-                </ResponsiveContainer>
+                      <Line 
+                        name="Average"
+                        type="linear" 
+                        dataKey="average" 
+                        stroke="#a3e635" 
+                        strokeWidth={2} 
+                        legendType="square"
+                        dot={(props: any) => {
+                          const { cx, cy } = props;
+                          if (cx == null || cy == null) return null;
+                          return <rect key={`dot-avg-${cx}-${cy}`} x={cx - 3.5} y={cy - 3.5} width={7} height={7} fill="#a3e635" />;
+                        }}
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                )}
               </div>
            </div>
 

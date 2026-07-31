@@ -106,3 +106,22 @@
 .dark input, .dark select, .dark textarea {
   @apply bg-slate-800 text-slate-100 border-slate-700 focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20;
 }
+
+/* ===== Print styles for Reports page ===== */
+@media print {
+  .no-print { display: none !important; }
+  body { background-color: white !important; }
+  .print-padding { padding: 0 !important; }
+  .print-no-shadow { box-shadow: none !important; }
+  .print-no-border { border: none !important; }
+  .text-print-black { color: black !important; }
+  .text-print-blue { color: #38bdf8 !important; }
+  .text-print-green { color: #84cc16 !important; }
+  .text-print-red { color: #f43f5e !important; }
+  .print-bg-light { background-color: #f1f5f9 !important; -webkit-print-color-adjust: exact; }
+  .print-fill-blue { fill: #bae6fd !important; opacity: 0.4 !important; -webkit-print-color-adjust: exact; }
+  .print-stroke-blue { stroke: #38bdf8 !important; -webkit-print-color-adjust: exact; }
+  .print-fill-red { fill: #fecaca !important; opacity: 0.4 !important; -webkit-print-color-adjust: exact; }
+  .print-stroke-red { stroke: #f43f5e !important; -webkit-print-color-adjust: exact; }
+}
+

@@ -18,11 +18,12 @@
 *.pem
 
 # env files (VERY IMPORTANT: Hide your Supabase keys)
+# The wildcards also cover copies such as .env.local.backup
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env*.local
+.env.local.*
+.env.backup
+.env.*.backup
 
 # vercel
 .vercel
@@ -31,6 +32,7 @@
 *.tsbuildinfo
 next-env.d.ts
 
-# local data backup (Hide your local database)
+# local data store (development only; Supabase is the source of truth)
 data.json
 /src/data/data.json
+notifications.json

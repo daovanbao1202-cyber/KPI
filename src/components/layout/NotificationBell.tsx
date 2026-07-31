@@ -1,86 +1,105 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Bell, X, Check } from 'lucide-react';
+import { Bell, Check } from 'lucide-react';
 import { useKPI } from '@/context/KPIContext';
-import { createClient } from '@supabase/supabase-js';
+import { supabase, isOnline } from '@/lib/supabase';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+interface Notification {
+  id: string;
+  user_id: number;
+  title: string;
+  message: string;
+  is_read: boolean;
+  created_at: string;
+}
 
 export default function NotificationBell() {
   const { loggedInUserId } = useKPI();
-  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     if (!loggedInUserId) return;
 
+    // The API scopes results to the session cookie, so the browser no longer
+    // decides whose notifications it receives.
     const fetchNotifications = async () => {
-      const { data, error } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', loggedInUserId)
-        .order('created_at', { ascending: false });
-
-      if (data) {
+      try {
+        const res = await fetch('/api/notifications');
+        if (!res.ok) return;
+        const data = await res.json();
+        data.sort(
+          (a: Notification, b: Notification) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
         setNotifications(data);
-        setUnreadCount(data.filter(n => !n.is_read).length);
+        setUnreadCount(data.filter((n: Notification) => !n.is_read).length);
+      } catch (error) {
+        console.warn('Failed to fetch notifications', error);
       }
     };
 
     fetchNotifications();
 
-    // Subscribe to real-time notifications
-    const channel = supabase
-      .channel('schema-db-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${loggedInUserId}`
-        },
-        (payload) => {
-          setNotifications(prev => [payload.new, ...prev]);
-          setUnreadCount(count => count + 1);
-        }
-      )
-      .subscribe();
+    if (isOnline) {
+      // Subscribe to real-time notifications
+      const channel = supabase
+        .channel('schema-db-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${loggedInUserId}`
+          },
+          (payload) => {
+            setNotifications(prev => [payload.new as Notification, ...prev]);
+            setUnreadCount(count => count + 1);
+          }
+        )
+        .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
   }, [loggedInUserId]);
 
   const markAsRead = async (id: string) => {
-    const { error } = await supabase
-      .from('notifications')
-      .update({ is_read: true })
-      .eq('id', id);
-
-    if (!error) {
-      setNotifications(prev => 
-        prev.map(n => n.id === id ? { ...n, is_read: true } : n)
-      );
-      setUnreadCount(count => Math.max(0, count - 1));
+    try {
+      const res = await fetch('/api/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      if (!res.ok) return;
+    } catch (error) {
+      console.warn('Failed to save read status', error);
+      return;
     }
+
+    setNotifications(prev =>
+      prev.map(n => n.id === id ? { ...n, is_read: true } : n)
+    );
+    setUnreadCount(count => Math.max(0, count - 1));
   };
 
   const markAllAsRead = async () => {
-    const { error } = await supabase
-      .from('notifications')
-      .update({ is_read: true })
-      .eq('user_id', loggedInUserId)
-      .eq('is_read', false);
+    try {
+      const res = await fetch('/api/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ all: true })
+      });
 
-    if (!error) {
-      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-      setUnreadCount(0);
+      if (res.ok) {
+        setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+        setUnreadCount(0);
+      }
+    } catch (error) {
+      console.warn('Failed to save read status', error);
     }
   };
 

@@ -1,34 +1,95 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useKPI } from '@/context/KPIContext';
-import { Target, Lock, Mail, ArrowRight, ShieldCheck, Zap } from 'lucide-react';
+import { Target, Lock, Mail, ArrowRight, ShieldCheck, Zap, X, CheckCircle2, AlertCircle } from 'lucide-react';
 
+/** `useSearchParams` requires a Suspense boundary above it. */
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#f8fafc]" />}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState(''); // Demo purposes
+  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { login } = useKPI();
+
+  // First-time password setup, for accounts migrated without a credential.
+  const [setupEmail, setSetupEmail] = useState<string | null>(null);
+  const [setupDone, setSetupDone] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [setupError, setSetupError] = useState('');
+  const [isSettingUp, setIsSettingUp] = useState(false);
+
+  const destination = searchParams.get('next') || '/dashboard';
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
 
+    const result = await login(email, password);
+
+    if (result.status === 'ok') {
+      router.push(destination);
+    } else if (result.status === 'needs-password-setup') {
+      setSetupEmail(result.email);
+      setSetupDone(false);
+      setNewPassword('');
+      setConfirmPassword('');
+      setSetupError('');
+    } else {
+      setError(result.message);
+    }
+
+    setIsLoading(false);
+  };
+
+  const handleCreatePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSetupError('');
+
+    if (newPassword !== confirmPassword) {
+      setSetupError('Mật khẩu xác nhận không trùng khớp.');
+      return;
+    }
+
+    setIsSettingUp(true);
     try {
-      const success = await login(email, password);
-      if (success) {
-        router.push('/dashboard');
-      } else {
-        setError('Invalid email or password. Please try again.');
+      const res = await fetch('/api/auth/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: setupEmail, newPassword }),
+      });
+      const payload = await res.json();
+
+      if (!res.ok) {
+        setSetupError(payload.error || 'Không đặt được mật khẩu.');
+        return;
       }
-    } catch (err) {
-      setError('An error occurred. Please try again.');
+
+      // Sign straight in with the credential that was just created.
+      const result = await login(setupEmail as string, newPassword);
+      if (result.status === 'ok') {
+        setSetupDone(true);
+        router.push(destination);
+      } else {
+        setSetupDone(true);
+      }
+    } catch {
+      setSetupError('Không kết nối được tới máy chủ.');
     } finally {
-      setIsLoading(false);
+      setIsSettingUp(false);
     }
   };
 
@@ -123,7 +184,11 @@ export default function LoginPage() {
                <div className="space-y-2">
                   <div className="flex items-center justify-between ml-1">
                      <label className="text-sm font-bold text-slate-700">Password</label>
-                     <a href="#" className="text-sm font-semibold text-blue-600 hover:text-blue-700">Forgot?</a>
+                     {/* Self-service reset removed: it let anyone change any
+                         account's password by typing that person's email. */}
+                     <span className="text-xs font-medium text-slate-400">
+                        Quên mật khẩu? Liên hệ Admin
+                     </span>
                   </div>
                   <div className="relative group">
                      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 group-focus-within:text-blue-500 transition-colors">
@@ -163,19 +228,116 @@ export default function LoginPage() {
 
             <div className="mt-10 pt-10 border-t border-slate-100">
                <p className="text-center text-slate-500 text-sm">
-                  Don't have an account? <a href="#" className="text-blue-600 font-bold hover:underline">Contact Administrator</a>
+                  Chưa có tài khoản? <span className="text-blue-600 font-bold">Liên hệ quản trị viên</span>
                </p>
-            </div>
-            
-            <div className="mt-8 bg-slate-50 rounded-xl p-4 border border-slate-100">
-               <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Demo Credentials</p>
-               <div className="space-y-2">
-                  <p className="text-xs text-slate-600 flex justify-between"><span>Admin:</span> <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">daovanbao1202@gmail.com</span></p>
-                  <p className="text-xs text-slate-600 flex justify-between"><span>User:</span> <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">hung@example.com</span></p>
-               </div>
             </div>
          </div>
       </div>
+
+      {/* First-time password setup */}
+      {setupEmail && (
+         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-100">
+               {/* Modal Header */}
+               <div className="flex justify-between items-center px-6 py-5 border-b border-slate-100 bg-slate-50/50">
+                  <div className="flex items-center gap-2.5">
+                     <div className="p-1.5 bg-blue-50 rounded-lg text-blue-600">
+                        <Lock size={18} />
+                     </div>
+                     <span className="font-bold text-slate-800">Đặt mật khẩu lần đầu</span>
+                  </div>
+                  <button
+                     onClick={() => setSetupEmail(null)}
+                     className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-1.5 rounded-lg transition-all"
+                  >
+                     <X size={18} />
+                  </button>
+               </div>
+
+               {/* Modal Content */}
+               <div className="p-6">
+                  {setupError && (
+                     <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl mb-4 text-xs font-semibold flex items-center gap-2">
+                        <AlertCircle size={16} className="shrink-0" />
+                        <span>{setupError}</span>
+                     </div>
+                  )}
+
+                  {!setupDone ? (
+                     <form onSubmit={handleCreatePassword} className="space-y-4">
+                        <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-100 mb-2">
+                           <p className="text-xs text-blue-800 font-medium leading-relaxed">
+                              Tài khoản <span className="font-bold text-blue-900">{setupEmail}</span> chưa
+                              có mật khẩu. Vui lòng tạo mật khẩu để bảo vệ tài khoản của bạn.
+                           </p>
+                        </div>
+
+                        <div className="space-y-1.5">
+                           <label className="text-xs font-bold text-slate-600 ml-1">Mật khẩu mới</label>
+                           <div className="relative">
+                              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                                 <Lock size={16} />
+                              </div>
+                              <input
+                                 type="password"
+                                 required
+                                 value={newPassword}
+                                 onChange={(e) => setNewPassword(e.target.value)}
+                                 placeholder="Tối thiểu 8 ký tự, gồm chữ và số"
+                                 className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                              />
+                           </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                           <label className="text-xs font-bold text-slate-600 ml-1">Xác nhận mật khẩu</label>
+                           <div className="relative">
+                              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                                 <Lock size={16} />
+                              </div>
+                              <input
+                                 type="password"
+                                 required
+                                 value={confirmPassword}
+                                 onChange={(e) => setConfirmPassword(e.target.value)}
+                                 placeholder="Nhập lại mật khẩu"
+                                 className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                              />
+                           </div>
+                        </div>
+
+                        <button
+                           type="submit"
+                           disabled={isSettingUp}
+                           className="w-full bg-[#10b981] hover:bg-emerald-600 text-white font-bold py-3 rounded-xl shadow-md transition-all mt-2 text-sm flex items-center justify-center gap-1.5 disabled:opacity-70"
+                        >
+                           {isSettingUp ? 'Đang lưu...' : 'Tạo mật khẩu và đăng nhập'}
+                        </button>
+                     </form>
+                  ) : (
+                     <div className="text-center py-4 space-y-4">
+                        <div className="inline-flex items-center justify-center w-14 h-14 bg-emerald-50 text-emerald-500 rounded-full">
+                           <CheckCircle2 size={36} />
+                        </div>
+                        <div className="space-y-2">
+                           <h3 className="font-bold text-slate-800 text-lg">Đã tạo mật khẩu!</h3>
+                           <p className="text-xs text-slate-500 leading-relaxed px-4">
+                              Mật khẩu đã được mã hoá và lưu trên máy chủ. Bạn có thể dùng mật khẩu này để đăng nhập.
+                           </p>
+                        </div>
+                        <button
+                           onClick={() => setSetupEmail(null)}
+                           className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl shadow-md transition-all text-sm mt-2"
+                        >
+                           Quay lại đăng nhập
+                        </button>
+                     </div>
+                  )}
+               </div>
+            </div>
+         </div>
+      )}
     </div>
   );
 }
+

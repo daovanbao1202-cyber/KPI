@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { UserCircle, ChevronDown, Search, Target, Plus, Trash2, Edit2, HelpCircle, X, ChevronUp } from 'lucide-react';
+import { UserCircle, ChevronDown, Search, Target, Plus, Trash2, Edit2, HelpCircle, X, ChevronUp, Save, CheckCircle2, Activity } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useKPI, KPIDefinition, Thresholds } from '@/context/KPIContext';
+import DeleteConfirmationModal from '@/components/common/DeleteConfirmationModal';
 
 const KPI_ICONS = [
   '🎯', '🎧', '💳', '🔗', '🧮', '💵', '📋', '👤', '🔄', '📈', '➕', '🧰',
@@ -13,8 +14,18 @@ const KPI_ICONS = [
 ];
 
 export default function KPIsPage() {
-  const { kpiDefs, addKPIDefinition, updateKPIDefinition, deleteKPIDefinition, userTargets, currentUser, users, setTarget } = useKPI();
+  const { kpiDefs, addKPIDefinition, updateKPIDefinition, deleteKPIDefinition, userTargets, currentUser, users, setTarget, saveToDisk } = useKPI();
   const router = useRouter();
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  
+  const handleManualSave = async () => {
+    setIsSaving(true);
+    await saveToDisk();
+    setIsSaving(false);
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 3000);
+  };
   
   useEffect(() => {
     if (currentUser && currentUser.role !== 'Admin') {
@@ -27,6 +38,8 @@ export default function KPIsPage() {
   const [isMoreOptionsOpen, setIsMoreOptionsOpen] = useState(false);
   const [isFormulaOpen, setIsFormulaOpen] = useState(false);
   const [editingKpiId, setEditingKpiId] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [kpiToDelete, setKpiToDelete] = useState<string | null>(null);
 
   // Form State
   const [name, setName] = useState('');
@@ -148,6 +161,10 @@ export default function KPIsPage() {
       {/* Top Header */}
       <div className="bg-white px-6 py-2.5 border-b border-gray-100 flex items-center justify-between shadow-sm shrink-0">
         <div className="flex items-center gap-6">
+           <button onClick={handleManualSave} className={`flex items-center gap-1.5 px-3 py-1.5 rounded transition-all font-medium text-[13px] border ${saveSuccess ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100'}`}>
+             {isSaving ? <Activity size={14} className="animate-spin" /> : (saveSuccess ? <CheckCircle2 size={14} /> : <Save size={14} />)}
+             {isSaving ? 'Đang lưu...' : (saveSuccess ? 'Đã lưu!' : 'Lưu thay đổi')}
+           </button>
            <button onClick={() => { resetForm(); setIsAddModalOpen(true); }} className="flex items-center gap-1.5 text-gray-600 font-medium hover:text-gray-800 text-[13px] bg-gray-50 border border-gray-200 px-3 py-1.5 rounded transition-colors hover:bg-gray-100">
              <Plus size={14} /> Add a KPI
            </button>
@@ -201,7 +218,7 @@ export default function KPIsPage() {
                     </tr>
                  </thead>
                  <tbody className="divide-y divide-gray-50 text-[13px]">
-                    {kpiDefs.map((kpi, idx) => {
+                    {kpiDefs.filter(k => (k.sheetType || 'MBO') === 'MBO' && k.name && k.name.trim() !== '').map((kpi, idx) => {
                       let tgt = userTargets.filter(t => t.kpiId === kpi.id).reduce((acc, curr) => acc + curr.targetValue, 0);
                       if (tgt === 0 && kpi.hasTarget) {
                         tgt = Number(kpi.hasTarget);
@@ -250,7 +267,7 @@ export default function KPIsPage() {
                           <td className="p-3 flex justify-center">
                               <div className="flex items-center gap-3">
                                 <input type="checkbox" className="w-3.5 h-3.5 rounded border-gray-300" />
-                                <Trash2 onClick={() => deleteKPIDefinition(kpi.id)} size={14} className="text-gray-300 hover:text-red-500 cursor-pointer" />
+                                <Trash2 onClick={() => { setKpiToDelete(kpi.id); setShowDeleteModal(true); }} size={14} className="text-gray-300 hover:text-red-500 cursor-pointer" />
                               </div>
                           </td>
                         </tr>
@@ -388,20 +405,41 @@ export default function KPIsPage() {
                                   const assigned = assignedUsers.find(au => au.userId === u.id);
                                   const isChecked = !!assigned;
                                   return (
-                                    <div key={u.id} className="flex items-center gap-3 p-2 hover:bg-gray-100 rounded transition-colors">
-                                      <input 
-                                        type="checkbox" 
-                                        checked={isChecked}
-                                        onChange={(e) => {
-                                          if (e.target.checked) {
-                                            setAssignedUsers([...assignedUsers, { userId: u.id, target: hasTarget || '' }]);
-                                          } else {
-                                            setAssignedUsers(assignedUsers.filter(au => au.userId !== u.id));
-                                          }
-                                        }}
-                                        className="w-4 h-4 text-[#555cf8] rounded border-gray-300 focus:ring-[#555cf8]"
-                                      />
-                                      <span className="text-sm font-medium text-gray-700 flex-1">{u.firstName} {u.lastName} <span className="text-gray-400 text-xs">({u.position})</span></span>
+                                    <div key={u.id} className="flex items-center justify-between gap-3 p-3 hover:bg-gray-100 rounded-xl transition-all duration-200 border border-transparent hover:border-gray-200">
+                                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                                        <input 
+                                          type="checkbox" 
+                                          checked={isChecked}
+                                          onChange={(e) => {
+                                            if (e.target.checked) {
+                                              setAssignedUsers([...assignedUsers, { userId: u.id, target: hasTarget || '' }]);
+                                            } else {
+                                              setAssignedUsers(assignedUsers.filter(au => au.userId !== u.id));
+                                            }
+                                          }}
+                                          className="w-4.5 h-4.5 text-[#555cf8] rounded border-gray-300 focus:ring-[#555cf8] cursor-pointer"
+                                        />
+                                        
+                                        {/* Avatar and Info */}
+                                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                          {u.avatar ? (
+                                            <img src={u.avatar} className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0" alt="" />
+                                          ) : (
+                                            <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-black text-xs shrink-0 border border-slate-200">
+                                              {u.firstName[0]}
+                                            </div>
+                                          )}
+                                          <div className="flex flex-col min-w-0">
+                                            <span className="text-sm font-bold text-slate-800 leading-tight truncate">{u.firstName} {u.lastName}</span>
+                                            <span className="text-[10px] text-gray-400 font-semibold truncate flex items-center gap-1 mt-0.5">
+                                              <span>🏢 {u.department}</span>
+                                              <span className="text-gray-300">•</span>
+                                              <span>{u.position}</span>
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </div>
+
                                       {isChecked && (
                                         <input 
                                           type="text" 
@@ -410,7 +448,7 @@ export default function KPIsPage() {
                                             setAssignedUsers(assignedUsers.map(au => au.userId === u.id ? { ...au, target: e.target.value } : au));
                                           }}
                                           placeholder="Target..."
-                                          className="w-24 border border-gray-200 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-[#555cf8] bg-white shadow-sm"
+                                          className="w-24 border border-gray-200 rounded px-2.5 py-1.5 text-xs text-right focus:outline-none focus:ring-2 focus:ring-[#555cf8]/20 focus:border-[#555cf8] bg-white shadow-sm font-semibold text-slate-700 shrink-0"
                                         />
                                       )}
                                     </div>
@@ -466,6 +504,19 @@ export default function KPIsPage() {
           </div>
         </div>
       )}
+
+      <DeleteConfirmationModal 
+        isOpen={showDeleteModal}
+        onClose={() => {
+          setShowDeleteModal(false);
+          setKpiToDelete(null);
+        }}
+        onConfirm={() => {
+          if (kpiToDelete) {
+            deleteKPIDefinition(kpiToDelete);
+          }
+        }}
+      />
     </div>
   );
 }

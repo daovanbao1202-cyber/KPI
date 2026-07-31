@@ -29,6 +29,7 @@ export interface KPIDefinition {
   calculateThisTarget?: boolean;
   hasTarget?: string; 
   customValues?: Record<string, string>; // { [columnName]: value }
+  sheetType?: 'MBO' | 'ACTION_PLAN';
 }
 
 export interface User {
@@ -40,9 +41,14 @@ export interface User {
   department: string;
   position: string;
   avatar?: string;
-  password?: string;
   assignedGroups?: Record<string, string>; // { [groupId]: itemId }
 }
+
+/** Result of a sign-in attempt. Credentials are verified server-side. */
+export type LoginResult =
+  | { status: 'ok' }
+  | { status: 'needs-password-setup'; email: string }
+  | { status: 'error'; message: string };
 
 export interface UserTarget {
   id: string;
@@ -118,8 +124,10 @@ interface KPIContextType {
   
   // Users
   users: User[];
-  addUser: (user: Omit<User, 'id'>) => void;
+  /** Returns the id assigned to the new user. */
+  addUser: (user: Omit<User, 'id'>) => number;
   updateUser: (id: number, user: Partial<User>) => void;
+  deleteUser: (id: number) => Promise<void>;
 
   // KPIs
   kpiDefs: KPIDefinition[];
@@ -143,8 +151,8 @@ interface KPIContextType {
   
   // Auth
   currentUser: User | null;
-  login: (email: string, password?: string) => Promise<boolean>;
-  logout: () => void;
+  login: (email: string, password: string) => Promise<LoginResult>;
+  logout: () => Promise<void>;
 
   // Dashboards
   dashboardCharts: DashboardChart[];
@@ -172,6 +180,8 @@ interface KPIContextType {
   updateUserSettings: (settings: Partial<UserSettings>) => void;
   
   isHydrated: boolean;
+  /** True once the server has been asked who the current user is. */
+  isAuthResolved: boolean;
   saveToDisk: () => Promise<void>;
   loadFromDisk: () => Promise<void>;
   importData: (data: any) => void;
@@ -181,12 +191,12 @@ interface KPIContextType {
   setCustomColumns: (cols: string[]) => void;
   hiddenCols: string[];
   setHiddenCols: (cols: string[]) => void;
+  duplicateKpis: (fromType: 'MBO' | 'ACTION_PLAN', toType: 'MBO' | 'ACTION_PLAN') => void;
+  renameCustomColumn: (oldName: string, newName: string) => void;
+  isLoadingCloud: boolean;
 }
 
-const defaultDashboardCharts: DashboardChart[] = [
-  { id: 'default-1', type: 'bar', kpiId: 'kpi-rev', title: 'Revenue Performance', dateRange: { start: '2026-04-01', end: '2026-04-08' } },
-  { id: 'default-2', type: 'pie', kpiId: 'kpi-meet', title: 'Meeting Distribution', dateRange: { start: '2026-04-01', end: '2026-04-08' } },
-];
+const defaultDashboardCharts: DashboardChart[] = [];
 
 
 const defaultUsers: User[] = [
@@ -270,8 +280,11 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
     timezone: '(GMT+07:00) Bangkok, Hanoi'
   });
   const [isHydrated, setIsHydrated] = useState(false);
+  /** True once the session cookie has been checked with the server. */
+  const [isAuthResolved, setIsAuthResolved] = useState(false);
   const [customColumns, setCustomColumns] = useState<string[]>([]);
   const [hiddenCols, setHiddenCols] = useState<string[]>([]);
+  const [isLoadingCloud, setIsLoadingCloud] = useState(false);
   const isLoadingRef = React.useRef(false);
 
   useEffect(() => {
@@ -288,37 +301,9 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    setKpiDefs(prev => {
-      const saved = safeParse('kpi_defs_v4', defaultKpis);
-      
-      const manualRecoveryMap: Record<number, string> = {
-        0: "신규고객확보/New Customer Acquisition/Thu hút khách hàng mới",
-        1: "계획달성/Plan Achievement/Đạt mục tiêu kế hoạch",
-        2: "미래성장/Future Growth/Tăng trưởng tương lai (Future Growth)",
-        3: "미래성장/Future Growth/Tăng trưởng tương lai (Future Growth)",
-        4: "이익기여/Profit Contribution/Đóng góp lợi nhuận (Profit Contribution)",
-        5: "이익기여/Profit Contribution/Đóng góp lợi nhuận (Profit Contribution)",
-        6: "자산관리/Asset Management/Quản lý tài sản",
-        7: "자산관리/Asset Management/Quản lý tài sản"
-      };
-
-      return saved.map((k: any, idx: number) => {
-        const recoveredValue = manualRecoveryMap[idx];
-        const currentCustom = k.customValues || {};
-        
-        // If the cell is empty, inject the recovered value
-        if (recoveredValue && (!currentCustom["전략과제(CSF)/NHIỆM VỤ CHIẾN LƯỢC"] || currentCustom["전략과제(CSF)/NHIỆM VỤ CHIẾN LƯỢC"] === "...")) {
-          return {
-            ...k,
-            customValues: {
-              ...currentCustom,
-              "전략과제(CSF)/NHIỆM VỤ CHIẾN LƯỢC": recoveredValue
-            }
-          };
-        }
-        return k;
-      });
-    });
+    setKpiDefs(
+      safeParse('kpi_defs_v4', defaultKpis).filter((k: any) => k.name && k.name.trim() !== '')
+    );
     setCustomColumns(prev => {
       const saved = safeParse('mbo_custom_cols_v1', []);
       const required = ["전략과제(CSF)/NHIỆM VỤ CHIẾN LƯỢC", "CSF - YẾU TỐ THÀNH CÔNG CỐT LÕI", "핵심성과지표 (KPI)/CHỈ SỐ HIỆU QUẢ CỐT LÕI"];
@@ -328,6 +313,9 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
     setUserActuals(safeParse('user_actuals_v4', defaultUserActuals));
     setUserTargets(safeParse('user_targets_v4', defaultTargets));
     setDashboardCharts(safeParse('dashboard_charts_v1', defaultDashboardCharts));
+    // `kpi_groups_v1` was written on every change but never read back, so groups
+    // disappeared on reload while their items survived.
+    setGroups(safeParse('kpi_groups_v1', []));
     setGroupItems(safeParse('kpi_group_items_v1', []));
     setUsers(safeParse('kpi_users_v1', defaultUsers));
     setReports(safeParse('kpi_reports_v1', []));
@@ -341,16 +329,11 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
     }));
     setIsHydrated(true);
 
-    const savedUser = localStorage.getItem('kpi_current_user');
-    if (savedUser) {
-      try {
-        const u = JSON.parse(savedUser);
-        if (u && typeof u === 'object') {
-          setCurrentUser(u);
-          setLoggedInUserId(u.id);
-        }
-      } catch (e) {}
-    }
+    // Identity is never read from localStorage: a forged entry there used to be
+    // enough to impersonate an Admin. The signed session cookie is the authority.
+    try {
+      localStorage.removeItem('kpi_current_user');
+    } catch {}
 
     const savedViewLevel = localStorage.getItem('kpi_view_level');
     if (savedViewLevel) setViewLevel(savedViewLevel as any);
@@ -366,44 +349,77 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+const safeLocalStorageSet = (key: string, value: string) => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(key, value);
+  } catch (e) {
+    console.warn(`LocalStorage write failed or quota exceeded for key "${key}":`, e);
+  }
+};
+
+/**
+ * Writes the local JSON snapshot. On a read-only (serverless) filesystem the
+ * endpoint answers 503; remember that and stop retrying on every save.
+ */
+let localSnapshotUnavailable = false;
+
+const saveLocalSnapshot = async (data: unknown) => {
+  if (localSnapshotUnavailable) return;
+  try {
+    const res = await fetch('/api/storage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (res.status === 503) {
+      localSnapshotUnavailable = true;
+      console.info('Local file storage is unavailable here; using Supabase only.');
+    }
+  } catch (e) {
+    console.warn('Local snapshot write failed', e);
+  }
+};
+
   useEffect(() => {
     if (!isHydrated) return;
-    localStorage.setItem('kpi_defs_v4', JSON.stringify(kpiDefs));
+    const cleanKpiDefs = kpiDefs.filter(k => k.name && k.name.trim() !== "");
+    safeLocalStorageSet('kpi_defs_v4', JSON.stringify(cleanKpiDefs));
   }, [kpiDefs, isHydrated]);
 
   useEffect(() => {
     if (!isHydrated) return;
-    localStorage.setItem('user_actuals_v4', JSON.stringify(userActuals));
+    safeLocalStorageSet('user_actuals_v4', JSON.stringify(userActuals));
   }, [userActuals, isHydrated]);
 
   useEffect(() => {
     if (!isHydrated) return;
-    localStorage.setItem('user_targets_v4', JSON.stringify(userTargets));
+    safeLocalStorageSet('user_targets_v4', JSON.stringify(userTargets));
   }, [userTargets, isHydrated]);
 
   useEffect(() => {
     if (!isHydrated) return;
-    localStorage.setItem('dashboard_charts_v1', JSON.stringify(dashboardCharts));
+    safeLocalStorageSet('dashboard_charts_v1', JSON.stringify(dashboardCharts));
   }, [dashboardCharts, isHydrated]);
 
   useEffect(() => {
     if (!isHydrated) return;
-    localStorage.setItem('kpi_groups_v1', JSON.stringify(groups));
+    safeLocalStorageSet('kpi_groups_v1', JSON.stringify(groups));
   }, [groups, isHydrated]);
 
   useEffect(() => {
     if (!isHydrated) return;
-    localStorage.setItem('kpi_group_items_v1', JSON.stringify(groupItems));
+    safeLocalStorageSet('kpi_group_items_v1', JSON.stringify(groupItems));
   }, [groupItems, isHydrated]);
 
   useEffect(() => {
     if (!isHydrated) return;
-    localStorage.setItem('kpi_reports_v1', JSON.stringify(reports));
+    safeLocalStorageSet('kpi_reports_v1', JSON.stringify(reports));
   }, [reports, isHydrated]);
 
   useEffect(() => {
     if (!isHydrated) return;
-    localStorage.setItem('kpi_user_settings_v1', JSON.stringify(userSettings));
+    safeLocalStorageSet('kpi_user_settings_v1', JSON.stringify(userSettings));
     
     // Apply Dark Mode class to HTML tag
     if (userSettings.theme === 'dark') {
@@ -413,44 +429,62 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
     }
   }, [userSettings, isHydrated]);
 
+  // Restore identity from the signed session cookie rather than localStorage.
   useEffect(() => {
-    if (!isHydrated) return;
-    if (currentUser) {
-      localStorage.setItem('kpi_current_user', JSON.stringify(currentUser));
-    } else {
-      localStorage.removeItem('kpi_current_user');
-    }
-  }, [currentUser, isHydrated]);
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch('/api/auth/session');
+        if (!cancelled && res.ok) {
+          const { user } = await res.json();
+          if (user) {
+            setCurrentUser(user);
+            setLoggedInUserId(user.id);
+          }
+        }
+      } catch {
+        // Offline or server unreachable: stay signed out.
+      } finally {
+        if (!cancelled) setIsAuthResolved(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isHydrated) return;
-    localStorage.setItem('kpi_users_v1', JSON.stringify(users));
+    safeLocalStorageSet('kpi_users_v1', JSON.stringify(users));
   }, [users, isHydrated]);
 
   useEffect(() => {
     if (!isHydrated) return;
-    localStorage.setItem('kpi_view_level', viewLevel);
+    safeLocalStorageSet('kpi_view_level', viewLevel);
   }, [viewLevel, isHydrated]);
 
   useEffect(() => {
     if (!isHydrated) return;
-    localStorage.setItem('kpi_view_filter', JSON.stringify(viewFilter));
+    safeLocalStorageSet('kpi_view_filter', JSON.stringify(viewFilter));
   }, [viewFilter, isHydrated]);
 
   useEffect(() => {
     if (!isHydrated) return;
-    localStorage.setItem('mbo_custom_cols_v1', JSON.stringify(customColumns));
+    safeLocalStorageSet('mbo_custom_cols_v1', JSON.stringify(customColumns));
   }, [customColumns, isHydrated]);
 
   useEffect(() => {
     if (!isHydrated) return;
-    localStorage.setItem('mbo_hidden_cols_v1', JSON.stringify(hiddenCols));
+    safeLocalStorageSet('mbo_hidden_cols_v1', JSON.stringify(hiddenCols));
   }, [hiddenCols, isHydrated]);
 
   const saveToDisk = async () => {
     try {
+      const cleanKpiDefs = kpiDefs.filter(k => k.name && k.name.trim() !== "");
       const data = {
-        kpiDefs,
+        kpiDefs: cleanKpiDefs,
         userActuals,
         userTargets,
         dashboardCharts,
@@ -472,7 +506,7 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
         }
       };
 
-      safeSave('kpi_defs_v4', kpiDefs);
+      safeSave('kpi_defs_v4', cleanKpiDefs);
       safeSave('user_actuals_v4', userActuals);
       safeSave('user_targets_v4', userTargets);
       safeSave('dashboard_charts_v1', dashboardCharts);
@@ -485,12 +519,9 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
         safeSave('kpi_current_user', currentUser);
       }
 
-      // 2. Save full data object to local file system (No 5MB limit here)
-      await fetch('/api/storage', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
+      // 2. Save the full snapshot to the local file system (no 5MB limit there).
+      // Unavailable on serverless hosts, where Supabase is the only store.
+      await saveLocalSnapshot(data);
 
       // Save to Online Database if configured
       if (isOnline) {
@@ -508,7 +539,7 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
         })));
 
         // KPI Definitions
-        await supabase.from('kpi_definitions').upsert(kpiDefs.map(k => ({
+        await supabase.from('kpi_definitions').upsert(cleanKpiDefs.map(k => ({
           id: k.id,
           name: k.name,
           unit: k.unit,
@@ -556,6 +587,31 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
         } catch (err) {
           console.warn('Supabase app_settings table might be missing. Please create it.');
         }
+
+        // NEW: Save KPI Reports
+        try {
+          if (reports && reports.length > 0) {
+            await supabase.from('kpi_reports').upsert(reports.map(r => ({
+              id: r.id,
+              kpi_id: r.kpiId,
+              user_id: r.userId,
+              date_key: r.dateKey,
+              month: r.month,
+              customer: r.customer,
+              type: r.type,
+              report_name: r.reportName,
+              pic_id: r.picId,
+              url: r.url,
+              status: r.status,
+              date: r.date,
+              note: r.note,
+              is_done: r.isDone
+            })));
+            console.log('KPI reports saved to Cloud');
+          }
+        } catch (err) {
+          console.warn('Supabase kpi_reports table might be missing or failed to save', err);
+        }
       }
 
       console.log('Data saved successfully');
@@ -567,6 +623,7 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
   const loadFromDisk = async () => {
     if (isLoadingRef.current) return;
     isLoadingRef.current = true;
+    setIsLoadingCloud(true);
     try {
       // 1. Try Online Database first
       if (isOnline) {
@@ -579,7 +636,11 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
           { data: dbCharts },
           { data: dbSettings }
         ] = await Promise.all([
-          supabase.from('users').select('*'),
+          // Explicit columns, not `*`: once SELECT on password_hash is revoked
+          // from the anon role, `select('*')` fails for the whole row.
+          supabase
+            .from('users')
+            .select('id, first_name, last_name, email, role, department, position, avatar'),
           supabase.from('kpi_definitions').select('*'),
           supabase.from('user_actuals').select('*'),
           supabase.from('user_targets').select('*'),
@@ -601,7 +662,8 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (dbKpis && dbKpis.length > 0) {
-          setKpiDefs(dbKpis.map(k => ({
+          const cleanKpis = dbKpis.filter((k: any) => k.name && k.name.trim() !== "");
+          setKpiDefs(cleanKpis.map((k: any) => ({
             id: k.id,
             name: k.name,
             unit: k.unit,
@@ -617,7 +679,8 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
             formula: k.formula,
             calculateThisTarget: k.calculate_this_target,
             hasTarget: k.has_target,
-            customValues: k.custom_values || {}
+            customValues: k.custom_values || {},
+            sheetType: k.sheet_type || 'MBO'
           })));
         }
 
@@ -656,29 +719,55 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
             dateRange: c.date_range
           })));
         }
+
+        // NEW: Load KPI Reports safely
+        try {
+          const { data: dbReports, error: reportsErr } = await supabase.from('kpi_reports').select('*');
+          if (!reportsErr && dbReports && dbReports.length > 0) {
+            setReports(dbReports.map((r: any) => ({
+              id: r.id,
+              kpiId: r.kpi_id,
+              userId: Number(r.user_id),
+              dateKey: r.date_key,
+              month: r.month,
+              customer: r.customer,
+              type: r.type,
+              reportName: r.report_name,
+              picId: Number(r.pic_id),
+              url: r.url,
+              status: r.status,
+              date: r.date,
+              note: r.note,
+              isDone: r.is_done
+            })));
+            console.log('KPI reports loaded from Cloud');
+          }
+        } catch (err) {
+          console.warn('Failed to load kpi_reports from Supabase', err);
+        }
         
         console.log('Online data loaded');
-        // Do NOT return here, we still need to load local UI settings like columns if not in DB
+
+        // Supabase is the source of truth. Previously the local file was read
+        // afterwards and overwrote everything that had just arrived from the
+        // cloud, so whichever browser last wrote data.json silently won.
+        return;
       }
 
-      // 2. Load Local Disk Settings & Fallback
+      // 2. Offline only: fall back to the local disk snapshot.
       const res = await fetch('/api/storage');
       if (res.ok) {
         const data = await res.json();
         if (data.kpiDefs) {
-          setKpiDefs(prev => {
-            // Smart merge: Only update if server has data that local doesn't,
-            // or if local is currently default/empty.
-            const hasCustomData = prev.some(k => k.customValues && Object.keys(k.customValues).length > 0);
-            if (hasCustomData && (!data.kpiDefs.some((k: any) => k.customValues && Object.keys(k.customValues).length > 0))) {
-              console.log('Preserving local custom data, skipping server overwrite.');
-              return prev;
-            }
-            return data.kpiDefs;
-          });
+          const cleanKpiDefs = data.kpiDefs.filter((k: any) => k.name && k.name.trim() !== "");
+          setKpiDefs(cleanKpiDefs);
         }
-        if (data.userActuals) setUserActuals(data.userActuals);
-        if (data.userTargets) setUserTargets(data.userTargets);
+        if (data.userActuals) {
+          setUserActuals(data.userActuals);
+        }
+        if (data.userTargets) {
+          setUserTargets(data.userTargets);
+        }
         if (data.dashboardCharts) setDashboardCharts(data.dashboardCharts);
         if (data.groups) setGroups(data.groups);
         if (data.groupItems) setGroupItems(data.groupItems);
@@ -693,6 +782,7 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
       console.warn('Failed to load data', e);
     } finally {
       isLoadingRef.current = false;
+      setIsLoadingCloud(false);
     }
   };
 
@@ -714,6 +804,7 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
   const addUser = (user: Omit<User, 'id'>) => {
     const newId = users.length > 0 ? Math.max(...users.map(u => u.id)) + 1 : 1;
     setUsers([...users, { ...user, id: newId }]);
+    return newId;
   };
 
   const updateUser = (id: number, u: Partial<User>) => {
@@ -728,6 +819,20 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
       
       return updatedUsers;
     });
+  };
+
+  const deleteUser = async (id: number) => {
+    const updatedUsers = users.filter(item => item.id !== id);
+    setUsers(updatedUsers);
+    
+    if (isOnline) {
+      try {
+        await supabase.from('users').delete().eq('id', id);
+        console.log('User deleted from Cloud');
+      } catch (err) {
+        console.error('Failed to delete user from Cloud', err);
+      }
+    }
   };
 
   const visibleKpiDefs = useMemo(() => {
@@ -752,8 +857,70 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
     setKpiDefs(prev => prev.map(item => item.id === id ? { ...item, ...kpi } as KPIDefinition : item));
   };
 
-  const deleteKPIDefinition = (id: string) => {
-    setKpiDefs(prev => prev.filter(item => item.id !== id));
+  const duplicateKpis = (fromType: 'MBO' | 'ACTION_PLAN', toType: 'MBO' | 'ACTION_PLAN') => {
+    const kpisToCopy = kpiDefs.filter(k => (k.sheetType || 'MBO') === fromType);
+    const copies = kpisToCopy.map(k => ({
+      ...k,
+      id: `kpi-${Date.now()}-${Math.random()}`,
+      sheetType: toType
+    }));
+    setKpiDefs(prev => [...prev, ...copies]);
+  };
+
+  const renameCustomColumn = (oldName: string, newName: string) => {
+    if (!newName || oldName === newName) return;
+    
+    // 1. Update column list
+    setCustomColumns(prev => prev.map(c => c === oldName ? newName : c));
+    
+    // 2. Migrate data in kpiDefs
+    setKpiDefs(prev => prev.map(kpi => {
+      if (!kpi.customValues || !kpi.customValues[oldName]) return kpi;
+      
+      const newValues = { ...kpi.customValues };
+      newValues[newName] = newValues[oldName];
+      delete newValues[oldName];
+      
+      return { ...kpi, customValues: newValues };
+    }));
+  };
+
+  const deleteKPIDefinition = async (id: string) => {
+    const updatedKpis = kpiDefs.filter(item => item.id !== id);
+    setKpiDefs(updatedKpis);
+    
+    // Immediate deletion from Supabase if online
+    if (isOnline) {
+      try {
+        await supabase.from('kpi_definitions').delete().eq('id', id);
+        console.log('KPI deleted from Cloud');
+      } catch (err) {
+        console.error('Failed to delete KPI from Cloud', err);
+      }
+    }
+
+    // Persist immediately to disk to prevent merge resurrection on page load
+    try {
+      const cleanKpis = updatedKpis.filter(k => k.name && k.name.trim() !== "");
+      const data = {
+        kpiDefs: cleanKpis,
+        userActuals,
+        userTargets,
+        dashboardCharts,
+        groups,
+        groupItems,
+        users,
+        reports,
+        userSettings,
+        customColumns,
+        hiddenCols
+      };
+      
+      safeLocalStorageSet('kpi_defs_v4', JSON.stringify(cleanKpis));
+      await saveLocalSnapshot(data);
+    } catch (e) {
+      console.error('Failed to save deleted KPI to disk', e);
+    }
   };
 
   const addActual = (actual: Omit<UserActual, 'id'>) => {
@@ -785,31 +952,45 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
-  const login = async (email: string, password?: string) => {
-    const trimmedEmail = email.trim().toLowerCase();
-    const user = users.find(u => u.email.toLowerCase() === trimmedEmail);
-    if (user) {
-      const expectedPassword = user.password || '';
-      const providedPassword = password || '';
-      
-      // If a password is set for the user, require it to match.
-      // If the user has no password, any password (or no password) works for now,
-      // but if we want to be strict, we could require empty password if expected is empty.
-      // Let's just say if expectedPassword is set, they must match.
-      if (expectedPassword && expectedPassword !== providedPassword) {
-        return false;
+  /**
+   * Credentials are verified by the server, which sets an httpOnly session
+   * cookie. The client never sees or stores a password.
+   */
+  const login = async (email: string, password: string): Promise<LoginResult> => {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const payload = await res.json();
+
+      if (res.ok && payload.needsPasswordSetup) {
+        return { status: 'needs-password-setup', email: payload.email };
       }
-      
-      setCurrentUser(user);
-      setLoggedInUserId(user.id);
-      return true;
+
+      if (!res.ok) {
+        return { status: 'error', message: payload.error || 'Đăng nhập không thành công.' };
+      }
+
+      setCurrentUser(payload.user);
+      setLoggedInUserId(payload.user.id);
+      return { status: 'ok' };
+    } catch {
+      return { status: 'error', message: 'Không kết nối được tới máy chủ.' };
     }
-    return false;
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/login', { method: 'DELETE' });
+    } catch {
+      // Clearing local state below still signs the user out of this browser.
+    }
     setCurrentUser(null);
-    localStorage.removeItem('kpi_current_user');
+    try {
+      localStorage.removeItem('kpi_current_user');
+    } catch {}
   };
 
   const addDashboardChart = (chart: Omit<DashboardChart, 'id'>) => {
@@ -855,8 +1036,16 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
     setReports(prev => prev.map(r => r.id === id ? { ...r, ...report } : r));
   };
 
-  const deleteReport = (id: string) => {
+  const deleteReport = async (id: string) => {
     setReports(prev => prev.filter(r => r.id !== id));
+    if (isOnline) {
+      try {
+        await supabase.from('kpi_reports').delete().eq('id', id);
+        console.log('Report deleted from Cloud');
+      } catch (err) {
+        console.error('Failed to delete report from Cloud', err);
+      }
+    }
   };
 
   const updateUserSettings = (s: Partial<UserSettings>) => {
@@ -878,7 +1067,7 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
   return (
     <KPIContext.Provider value={{
       actuals, updateActual, target: 100,
-      users, addUser, updateUser,
+      users, addUser, updateUser, deleteUser,
       kpiDefs, visibleKpiDefs, addKPIDefinition, updateKPIDefinition, deleteKPIDefinition,
       loggedInUserId, setLoggedInUserId,
       viewLevel, setViewLevel,
@@ -889,8 +1078,8 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
       groups, groupItems, addGroup, updateGroup, deleteGroup, addGroupItem, updateGroupItem, deleteGroupItem,
       reports, addReport, updateReport, deleteReport,
       userSettings, updateUserSettings,
-      isHydrated, saveToDisk, loadFromDisk, importData,
-      customColumns, setCustomColumns, hiddenCols, setHiddenCols
+      isHydrated, isAuthResolved, saveToDisk, loadFromDisk, importData,
+      customColumns, setCustomColumns, hiddenCols, setHiddenCols, duplicateKpis, renameCustomColumn, isLoadingCloud
     }}>
       {children}
     </KPIContext.Provider>

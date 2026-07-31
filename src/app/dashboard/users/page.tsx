@@ -5,13 +5,33 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Plus, ChevronDown, HelpCircle, Search, Edit2, UserCircle, Play, X, UserCheck, BarChart2, CheckCircle2, Upload, Eye, EyeOff } from 'lucide-react';
 import { useKPI, User } from '@/context/KPIContext';
+import { compressImageToDataUrl } from '@/lib/image';
 
 const DEPARTMENTS = ["Admin & Kế Toán", "Sale", "AE", "FAE1", "FAE2", "PM", "Management"];
 const POSITIONS = ["CEO", "Team Leader", "Leader", "Staff/Engineer"];
 
 export default function UsersPage() {
-  const { users, addUser, updateUser, currentUser, groups, groupItems } = useKPI();
+  const { users, addUser, updateUser, deleteUser, currentUser, groups, groupItems, saveToDisk } = useKPI();
   const router = useRouter();
+  const [passwordNotice, setPasswordNotice] = useState<string | null>(null);
+
+  /**
+   * Passwords are set through the auth API so they are hashed server-side.
+   * Returns an error message, or null on success.
+   */
+  const setUserPassword = async (targetUserId: number, newPassword: string): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/auth/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetUserId, newPassword }),
+      });
+      const payload = await res.json();
+      return res.ok ? null : payload.error || 'Không đặt được mật khẩu.';
+    } catch {
+      return 'Không kết nối được tới máy chủ.';
+    }
+  };
 
   useEffect(() => {
     if (currentUser && currentUser.role !== 'Admin') {
@@ -42,6 +62,7 @@ export default function UsersPage() {
   const [editForm, setEditForm] = useState({ 
     firstName: '', 
     lastName: '', 
+    email: '',
     department: '', 
     position: '', 
     avatar: '',
@@ -53,14 +74,24 @@ export default function UsersPage() {
     setEditForm({ 
        firstName: user.firstName, 
        lastName: user.lastName, 
+       email: user.email || '',
        department: user.department || 'Sale', 
        position: user.position || 'Staff/Engineer', 
        avatar: user.avatar || '',
-       password: user.password || '',
+       // Never populated from state: the hash lives server-side only. A value
+       // here means "set this as the new password".
+       password: '',
        assignedGroups: user.assignedGroups || {}
     });
     setEditingUser(user);
     setIsChangingPassword(false);
+  };
+
+  const handleDeleteUser = async (userId: number) => {
+    if (confirm("Bạn có chắc chắn muốn xóa user này không? / Are you sure you want to delete this user?")) {
+      await deleteUser(userId);
+      setEditingUser(null);
+    }
   };
 
   const handleGroupAssignmentChange = (groupId: string, itemId: string) => {
@@ -73,23 +104,22 @@ export default function UsersPage() {
     }));
   };
 
-  const handleImageUpload = (e: ChangeEvent<HTMLInputElement>, isEdit: boolean) => {
+  const handleImageUpload = async (e: ChangeEvent<HTMLInputElement>, isEdit: boolean) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (isEdit) {
-           setEditForm({ ...editForm, avatar: reader.result as string });
-        } else {
-           setAddForm({ ...addForm, avatar: reader.result as string });
-        }
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    // Downscale before storing: full-resolution base64 avatars were the bulk
+    // of the saved payload.
+    const avatar = await compressImageToDataUrl(file);
+    if (isEdit) {
+      setEditForm(prev => ({ ...prev, avatar }));
+    } else {
+      setAddForm(prev => ({ ...prev, avatar }));
     }
   };
 
-  const handleSaveAdd = () => {
-    addUser({
+  const handleSaveAdd = async () => {
+    const newId = addUser({
       firstName: addForm.firstName,
       lastName: addForm.lastName,
       email: addForm.email,
@@ -99,6 +129,18 @@ export default function UsersPage() {
       avatar: addForm.avatar || `https://i.pravatar.cc/150?u=${Math.random()}`,
       assignedGroups: addForm.assignedGroups
     });
+
+    if (addForm.password) {
+      // Sync the row first so the server can attach the hash to an existing user.
+      await saveToDisk();
+      const failure = await setUserPassword(newId, addForm.password);
+      setPasswordNotice(
+        failure
+          ? `Đã tạo user nhưng chưa đặt được mật khẩu: ${failure}`
+          : 'Đã tạo user và đặt mật khẩu thành công.'
+      );
+    }
+
     setIsAddModalOpen(false);
     setAddForm({ 
       firstName: '', 
@@ -113,23 +155,44 @@ export default function UsersPage() {
     });
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingUser) return;
-    updateUser(editingUser.id, { 
-       firstName: editForm.firstName, 
+    updateUser(editingUser.id, {
+       firstName: editForm.firstName,
        lastName: editForm.lastName,
+       email: editForm.email,
        department: editForm.department,
        position: editForm.position,
        avatar: editForm.avatar || editingUser.avatar,
-       password: editForm.password,
        assignedGroups: editForm.assignedGroups
     });
+
+    // A non-empty field means the Admin is resetting this user's password.
+    if (editForm.password) {
+      const failure = await setUserPassword(editingUser.id, editForm.password);
+      setPasswordNotice(failure ?? 'Đã đặt lại mật khẩu thành công.');
+    }
+
     setEditingUser(null);
   };
 
   return (
     <div className="flex flex-col h-full bg-[#f4f5f8] pb-10">
-      
+
+      {passwordNotice && (
+        <div className="mx-6 mt-4 flex items-start justify-between gap-3 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          <span>{passwordNotice}</span>
+          <button
+            type="button"
+            onClick={() => setPasswordNotice(null)}
+            className="shrink-0 text-blue-500 hover:text-blue-700"
+            aria-label="Đóng thông báo"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {/* Top Header */}
       <div className="bg-white px-6 py-2 border-b border-gray-100 flex items-center justify-between shadow-sm shrink-0">
         <div className="flex items-center gap-4 relative">
@@ -308,31 +371,24 @@ export default function UsersPage() {
                      </select>
                    </div>
                    <div className="col-span-2">
+                     <label className="block text-[13px] font-bold text-[#334155] mb-2">Email Address</label>
+                     <input type="email" value={editForm.email} onChange={e => setEditForm({...editForm, email: e.target.value})} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#555cf8] transition-all bg-[#f8fafc]" />
+                   </div>
+                   <div className="col-span-2">
                      <label className="block text-[13px] font-bold text-[#334155] mb-2">Password</label>
                      {!isChangingPassword ? (
                         <div className="flex items-center gap-3">
-                          <div className="relative flex-1">
-                            <input 
-                              type={showEditPassword ? "text" : "password"} 
-                              value={editForm.password || ''} 
-                              disabled
-                              placeholder={editForm.password ? "" : "Chưa cài đặt mật khẩu"}
-                              className="w-full border border-gray-200 rounded-md px-3 py-2 pr-10 text-sm bg-gray-50 text-gray-500 cursor-not-allowed" 
-                            />
-                            <button 
-                              type="button"
-                              onClick={() => setShowEditPassword(!showEditPassword)}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                            >
-                              {showEditPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                            </button>
+                          {/* Hashes are never sent to the browser, so there is
+                              nothing to reveal here any more. */}
+                          <div className="flex-1 border border-gray-200 rounded-md px-3 py-2 text-sm bg-gray-50 text-gray-500">
+                            Mật khẩu được mã hoá và lưu trên máy chủ
                           </div>
-                          <button 
+                          <button
                             type="button"
-                            onClick={() => setIsChangingPassword(true)} 
+                            onClick={() => setIsChangingPassword(true)}
                             className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-md transition-colors border border-gray-200"
                           >
-                            Đổi Mật Khẩu
+                            Đặt lại mật khẩu
                           </button>
                         </div>
                      ) : (
@@ -396,10 +452,22 @@ export default function UsersPage() {
                 </div>
              </div>
 
-             <div className="bg-white p-6 pt-2 flex justify-end gap-3 rounded-b-lg border-t border-gray-50 mt-4">
-                <button onClick={() => setEditingUser(null)} className="px-6 py-2 rounded-md font-medium text-white bg-[#cbd5e1] hover:bg-[#94a3b8] transition-colors text-sm shadow-sm">Cancel</button>
-                <button onClick={handleSaveEdit} className="px-6 py-2 rounded-md font-medium text-white bg-[#666cf8] hover:bg-[#555cf8] transition-colors text-sm shadow-sm">Save</button>
-             </div>
+              <div className="bg-white p-6 pt-2 flex justify-between items-center rounded-b-lg border-t border-gray-50 mt-4">
+                 <div>
+                    {currentUser?.role === 'Admin' && (
+                       <button 
+                          onClick={() => handleDeleteUser(editingUser.id)}
+                          className="px-6 py-2.5 rounded-md font-bold text-white bg-red-500 hover:bg-red-600 transition-colors text-sm shadow-sm"
+                       >
+                          Xóa User / Delete User
+                       </button>
+                    )}
+                 </div>
+                 <div className="flex gap-3">
+                    <button onClick={() => setEditingUser(null)} className="px-6 py-2 rounded-md font-medium text-white bg-[#cbd5e1] hover:bg-[#94a3b8] transition-colors text-sm shadow-sm">Cancel</button>
+                    <button onClick={handleSaveEdit} className="px-6 py-2 rounded-md font-medium text-white bg-[#666cf8] hover:bg-[#555cf8] transition-colors text-sm shadow-sm">Save</button>
+                 </div>
+              </div>
           </div>
         </div>
       )}

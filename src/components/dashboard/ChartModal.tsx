@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Calendar as CalendarIcon, ChevronDown, Check, Settings2, BarChart2, PieChart, Target as GaugeIcon, Trash2, LineChart, TrendingUp, BarChart, Network } from 'lucide-react';
+import { X, Calendar as CalendarIcon, ChevronDown, Check, Settings2, BarChart2, PieChart, Target as GaugeIcon, Trash2, LineChart, TrendingUp, BarChart, Network, List } from 'lucide-react';
 import { useKPI, KPIDefinition } from '@/context/KPIContext';
-import { BarGraph, KPIDonutChart, GaugeChart, LineGraph, SingleKPI, StackedKpiGraph, MultipleKpiSeries, RagColumnGraph, MultiKpiPieChart } from '@/components/dashboard/Charts';
+import { BarGraph, KPIDonutChart, GaugeChart, LineGraph, SingleKPI, StackedKpiGraph, MultipleKpiSeries, RagColumnGraph, MultiKpiPieChart, KPIList } from '@/components/dashboard/Charts';
 import DateRangeSelector from '@/components/common/DateRangeSelector';
 
 interface ChartModalProps {
@@ -27,7 +27,8 @@ export default function ChartModal({ type, onClose, onSave }: ChartModalProps) {
   const [isKpiDropdownOpen, setIsKpiDropdownOpen] = useState(false);
 
   const selectedKpi = kpiDefs.find(k => k.id === selectedKpiId);
-  const isMultiKpi = ['stacked', 'multi-series', 'multi-pie'].includes(type);
+  const isMultiKpi = ['stacked', 'multi-series', 'multi-pie', 'kpiList'].includes(type);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const handleSave = () => {
     onSave({
@@ -46,8 +47,13 @@ export default function ChartModal({ type, onClose, onSave }: ChartModalProps) {
     }
   };
 
+  // Filter left side list by search term
+  const filteredKpis = kpiDefs.filter(k => 
+    k.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
-    <div className="fixed inset-0 bg-[#384252]/40 z-[100] flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-[rgba(56,66,82,0.4)] z-[100] flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[95vh] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
         
         {/* Header */}
@@ -61,8 +67,9 @@ export default function ChartModal({ type, onClose, onSave }: ChartModalProps) {
                 {type === 'multi-series' && <Network size={18} />}
                 {(type === 'pie' || type === 'multi-pie') && <PieChart size={18} />}
                 {type === 'gauge' && <GaugeIcon size={18} />}
+                {type === 'kpiList' && <List size={18} />}
              </div>
-             <h2 className="text-lg font-bold text-gray-800 tracking-tight">Edit {type.replace('-', ' ')}</h2>
+             <h2 className="text-lg font-bold text-gray-800 tracking-tight">Edit {type === 'kpiList' ? 'Multiple KPIs' : type.replace('-', ' ')}</h2>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X size={20} />
@@ -71,20 +78,20 @@ export default function ChartModal({ type, onClose, onSave }: ChartModalProps) {
 
         <div className="flex-1 overflow-y-auto flex">
           {/* Main Content */}
-          <div className="flex-1 p-8 space-y-8 bg-gray-50/30">
+          <div className="flex-1 p-8 space-y-8 bg-gray-50 overflow-visible">
             
             {/* Step 1: Select KPI & Date Range */}
-            <div>
+            <div className="overflow-visible relative">
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-7 h-7 bg-blue-100/50 text-blue-600 rounded-lg flex items-center justify-center text-xs font-bold leading-none">1</div>
+                <div className="w-7 h-7 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center text-xs font-bold leading-none">1</div>
                 <h3 className="text-[11px] font-bold text-gray-700 uppercase tracking-widest">Select a KPI & a date range</h3>
               </div>
 
-              <div className="flex gap-4">
+              <div className="flex gap-4 overflow-visible relative">
                 {/* KPI Selector */}
-                <div className="flex-1 relative">
+                <div className="flex-1 overflow-visible relative">
                   {isMultiKpi ? (
-                    <div className="relative">
+                    <div className="relative overflow-visible">
                       <button 
                         onClick={() => setIsKpiDropdownOpen(!isKpiDropdownOpen)}
                         className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 text-left text-sm font-bold text-gray-700 flex items-center justify-between shadow-sm hover:bg-gray-50 transition-colors"
@@ -92,19 +99,121 @@ export default function ChartModal({ type, onClose, onSave }: ChartModalProps) {
                         <span>{selectedKpiIds.length} KPIs selected</span>
                         <ChevronDown size={16} className="text-gray-400" />
                       </button>
+                      
+                      {/* Premium Dual-Pane Multi-KPI Selector Panel */}
                       {isKpiDropdownOpen && (
-                        <div className="absolute top-full left-0 mt-2 w-full bg-white border border-gray-100 shadow-xl rounded-xl p-2 z-[60] max-h-48 overflow-y-auto border-t-4 border-t-blue-500">
-                           {kpiDefs.map(kpi => (
-                             <label key={kpi.id} className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 rounded cursor-pointer transition-colors">
-                               <input 
-                                 type="checkbox" 
-                                 checked={selectedKpiIds.includes(kpi.id)}
-                                 onChange={() => toggleKpiId(kpi.id)}
-                                 className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
-                               />
-                               <span className="text-sm font-medium text-gray-700">{kpi.name}</span>
-                             </label>
-                           ))}
+                        <div className="absolute top-full left-0 mt-2 w-[600px] bg-white border border-slate-100 shadow-2xl rounded-2xl p-6 z-[60] flex gap-6 min-h-[380px] animate-in fade-in slide-in-from-top-2 duration-200">
+                          
+                          {/* Left Panel: Available list & Search */}
+                          <div className="w-[280px] flex flex-col">
+                            <div className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">
+                              {selectedKpiIds.length} KPIs selected
+                            </div>
+                            
+                            {/* Search bar */}
+                            <div className="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 mb-4 focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-indigo-500 transition-all">
+                              <span className="text-slate-400">🔍</span>
+                              <input 
+                                type="text"
+                                placeholder="Type to search"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full bg-transparent border-none text-xs font-semibold text-slate-700 placeholder-slate-400 p-0 focus:ring-0 focus:outline-none"
+                              />
+                            </div>
+                            
+                            {/* Default list folder header */}
+                            <div className="flex items-center justify-between text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg mb-2">
+                              <span>+ Default</span>
+                              <ChevronDown size={14} />
+                            </div>
+                            
+                            {/* Scrollable list */}
+                            <div className="flex-1 overflow-y-auto space-y-1 pr-1 max-h-[200px]">
+                              {filteredKpis.map(kpi => {
+                                const isAdded = selectedKpiIds.includes(kpi.id);
+                                return (
+                                  <div 
+                                    key={kpi.id}
+                                    onClick={() => toggleKpiId(kpi.id)}
+                                    className={`flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-xl cursor-pointer text-xs font-semibold text-slate-700 transition-colors ${
+                                      isAdded ? 'bg-indigo-50 text-indigo-700' : ''
+                                    }`}
+                                  >
+                                    <div className="w-4 h-4 rounded border border-slate-300 flex items-center justify-center bg-white transition-all">
+                                      {isAdded && <Check size={10} className="text-indigo-600 stroke-[3px]" />}
+                                    </div>
+                                    <span className="text-lg leading-none">{kpi.icon || '🎯'}</span>
+                                    <span className="truncate">{kpi.name}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          
+                          {/* Divider line */}
+                          <div className="w-px bg-slate-100 my-1"></div>
+                          
+                          {/* Right Panel: Selected & Actions */}
+                          <div className="flex-1 flex flex-col">
+                            <div className="font-bold text-slate-800 text-sm mb-1">
+                              Selected KPIs
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-semibold mb-4 leading-normal">
+                              Add and sort your KPIs in the list below before adding.
+                            </div>
+                            
+                            {/* Scrollable selected list */}
+                            <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[190px]">
+                              {selectedKpiIds.map(id => {
+                                const kpi = kpiDefs.find(k => k.id === id);
+                                if (!kpi) return null;
+                                return (
+                                  <div 
+                                    key={id}
+                                    className="flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-100 rounded-xl text-xs font-semibold text-slate-700"
+                                  >
+                                    <div className="flex items-center gap-2.5 truncate">
+                                      <span className="text-lg leading-none">{kpi.icon || '🎯'}</span>
+                                      <span className="truncate">{kpi.name}</span>
+                                    </div>
+                                    <button 
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleKpiId(id);
+                                      }}
+                                      className="text-slate-400 hover:text-red-500 font-black text-sm px-1.5"
+                                    >
+                                      —
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                              
+                              {selectedKpiIds.length === 0 && (
+                                <div className="h-full flex items-center justify-center text-xs font-semibold text-slate-300">
+                                  No KPIs selected
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* Action Buttons */}
+                            <div className="flex gap-3 mt-auto pt-4 justify-end">
+                              <button 
+                                onClick={() => setSelectedKpiIds([])}
+                                className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-500 text-[11px] font-bold rounded-lg transition-all"
+                              >
+                                clear
+                              </button>
+                              <button 
+                                onClick={() => setIsKpiDropdownOpen(false)}
+                                className="px-5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-lg transition-all shadow-md shadow-indigo-100"
+                              >
+                                Done
+                              </button>
+                            </div>
+                          </div>
+                          
                         </div>
                       )}
                     </div>
@@ -127,7 +236,7 @@ export default function ChartModal({ type, onClose, onSave }: ChartModalProps) {
                   )}
                 </div>
 
-                {/* Date Selector */}
+                {/* Date Range Selector */}
                 <div className="flex-1 relative">
                   <button 
                     onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
@@ -183,15 +292,16 @@ export default function ChartModal({ type, onClose, onSave }: ChartModalProps) {
                    {type === 'pie' && <KPIDonutChart kpiId={selectedKpiId} dateRange={dateRange} />}
                    {type === 'multi-pie' && <MultiKpiPieChart kpiIds={selectedKpiIds} dateRange={dateRange} />}
                    {type === 'gauge' && <GaugeChart kpiId={selectedKpiId} dateRange={dateRange} />}
+                   {type === 'kpiList' && <KPIList kpiIds={selectedKpiIds} dateRange={dateRange} />}
                 </div>
-            </div>
           </div>
+        </div>
 
           {/* Sidebar Customizations */}
           <div className="w-72 bg-white border-l border-gray-100 flex flex-col">
              <div className="p-6 border-b border-gray-50">
                <div className="flex items-center gap-3">
-                 <div className="w-7 h-7 bg-blue-100/50 text-blue-600 rounded-lg flex items-center justify-center text-xs font-bold leading-none">2</div>
+                 <div className="w-7 h-7 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center text-xs font-bold leading-none">2</div>
                  <h3 className="text-sm font-bold text-gray-700 uppercase tracking-tight">Customize</h3>
                </div>
              </div>

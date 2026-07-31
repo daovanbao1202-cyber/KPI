@@ -4,13 +4,13 @@ import { useState, useMemo } from 'react';
 import { 
   FileText, ChevronDown, ChevronUp, Plus, 
   Eye, TrendingUp, TrendingDown, X, SlidersHorizontal,
-  Table, FileDown, Trash2, Share2, HelpCircle
+  Table, FileDown, Trash2, Share2, HelpCircle, Trophy, Medal, Star
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useKPI } from '@/context/KPIContext';
 import { useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { ResponsiveContainer, AreaChart, Area, Line } from 'recharts';
+import { ResponsiveContainer, ComposedChart, Area, Line } from 'recharts';
 import DateRangeSelector from '@/components/common/DateRangeSelector';
 import ViewSelector from '@/components/dashboard/ViewSelector';
 
@@ -18,7 +18,7 @@ const getDatesInRange = (startDate: string, endDate: string) => {
   const dates = [];
   const [sy, sm, sd] = startDate.split('-').map(Number);
   const [ey, em, ed] = endDate.split('-').map(Number);
-  let current = new Date(sy, sm - 1, sd);
+  const current = new Date(sy, sm - 1, sd);
   const end = new Date(ey, em - 1, ed);
   let count = 0;
   while (current <= end && count < 365) {
@@ -32,8 +32,31 @@ const getDatesInRange = (startDate: string, endDate: string) => {
   return dates;
 };
 
+const isKeyInPeriod = (key: string, start: string, end: string) => {
+  if (!key) return false;
+  // If weekly (W-YYYY-MM-DD)
+  if (key.startsWith('W-')) {
+    const datePart = key.substring(2);
+    return datePart >= start && datePart <= end;
+  }
+  // If daily (YYYY-MM-DD)
+  if (key.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    return key >= start && key <= end;
+  }
+  // If monthly (YYYY-MM)
+  if (key.match(/^\d{4}-\d{2}$/)) {
+    return key >= start.substring(0, 7) && key <= end.substring(0, 7);
+  }
+  // If yearly (YYYY)
+  if (key.match(/^\d{4}$/)) {
+    return key >= start.substring(0, 4) && key <= end.substring(0, 4);
+  }
+  return false;
+};
+
 export default function ReportsPage() {
   const [showCustomize, setShowCustomize] = useState(false);
+  const [showAllLeaderboard, setShowAllLeaderboard] = useState(false);
   const getPastDate = (daysAgo: number) => {
     const d = new Date();
     d.setDate(d.getDate() - daysAgo);
@@ -96,11 +119,18 @@ export default function ReportsPage() {
           });
         });
       } else {
-        // For non-daily KPIs, we just sum whatever is found that falls into this period roughly,
-        // or just sum the global targets. To be safe and simple, we'll just sum what is in the DB 
-        // that matches the relevant users, since dateKey might not be YYYY-MM-DD.
-        const relevantManual = userActuals.filter(a => a.kpiId === kpi.id && relevantUserIds.includes(a.userId));
-        const relevantReports = reports ? reports.filter(r => r.kpiId === kpi.id && relevantUserIds.includes(r.userId) && r.isDone) : [];
+        // For non-daily KPIs, we filter by the date/dateKey using our generic matching helper.
+        const relevantManual = userActuals.filter(a => 
+          a.kpiId === kpi.id && 
+          relevantUserIds.includes(a.userId) &&
+          isKeyInPeriod(a.date, dateRange.start, dateRange.end)
+        );
+        const relevantReports = reports ? reports.filter(r => 
+          r.kpiId === kpi.id && 
+          relevantUserIds.includes(r.userId) && 
+          r.isDone &&
+          isKeyInPeriod(r.dateKey, dateRange.start, dateRange.end)
+        ) : [];
         
         const userDateSet = new Set([
           ...relevantManual.map(a => `${a.userId}|${a.date}`),
@@ -138,26 +168,44 @@ export default function ReportsPage() {
         }
       }
 
-      const history = dates.map(date => {
-        let dayActual = 0;
-        let dayTarget = 0;
+      // Generate sparkline/trend data using a fixed 7-month historical range for beautiful rendering
+      const todayDateObj = new Date(2026, 4, 30);
+      const trendDates = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(todayDateObj);
+        d.setMonth(d.getMonth() - i);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        trendDates.push(`${y}-${m}`);
+      }
+
+      const history = trendDates.map(date => {
+        let val = 0;
         relevantUserIds.forEach(uId => {
-          // Actual
           const rCount = reports ? reports.filter(r => r.kpiId === kpi.id && r.userId === uId && r.dateKey === date && r.isDone).length : 0;
           if (rCount > 0) {
-            dayActual += rCount;
+            val += rCount;
           } else {
-            const m = userActuals.find(a => a.kpiId === kpi.id && a.userId === uId && a.date === date);
-            if (m) dayActual += m.actualValue;
+            const m = userActuals.find(a => a.kpiId === kpi.id && a.userId === uId && (a.date === date || a.date.startsWith(date)));
+            if (m) val += m.actualValue;
           }
-
-          // Target
-          let dt = userTargets.find(t => t.kpiId === kpi.id && t.userId === uId && t.dateKey === date)?.targetValue;
-          if (dt === undefined) dt = userTargets.find(t => t.kpiId === kpi.id && t.userId === uId && !t.dateKey)?.targetValue;
-          if (dt === undefined) dt = Number(kpi.hasTarget) || 0;
-          dayTarget += dt;
         });
-        return { actual: dayActual, target: dayTarget };
+        
+        let periodTarget = userTargets
+          .filter(t => t.kpiId === kpi.id && relevantUserIds.includes(t.userId))
+          .reduce((acc, curr) => acc + curr.targetValue, 0);
+        
+        if (periodTarget === 0 && kpi.hasTarget) {
+          periodTarget = Number(kpi.hasTarget);
+        }
+        if (periodTarget === 0) {
+          periodTarget = 5;
+        }
+
+        return {
+          actual: val,
+          target: periodTarget
+        };
       });
 
       // Default fallback
@@ -181,6 +229,126 @@ export default function ReportsPage() {
       };
     });
   }, [kpiDefs, userActuals, userTargets, relevantUserIds, reports, dateRange]);
+
+  // ===== TOP 5 PERFORMERS LEADERBOARD =====
+  const leaderboardData = useMemo(() => {
+    const dates = getDatesInRange(dateRange.start, dateRange.end);
+    
+    // For a real leaderboard, we show top performers in the scope.
+    // If viewLevel is Department, limit to that department.
+    // Otherwise (Company or Individual level), show the company-wide Top 5.
+    const leaderboardUsers = users.filter(u => {
+      if (viewLevel === 'Department' && u.department !== viewFilter) return false;
+      // Keep user only if they are assigned a KPI in kpiDefs with target > 0
+      return userTargets.some(t => t.userId === u.id && kpiDefs.some(k => k.id === t.kpiId) && t.targetValue > 0);
+    });
+
+    const scoreMap: Record<number, { actual: number; target: number }> = {};
+
+    leaderboardUsers.forEach(u => {
+      let actualSum = 0;
+      let targetSum = 0;
+
+      kpiDefs.forEach(kpi => {
+        if (!kpi.frequency || kpi.frequency.toLowerCase() === 'daily') {
+          dates.forEach(date => {
+            // Actual
+            const rCount = reports ? reports.filter(r => r.kpiId === kpi.id && r.userId === u.id && r.dateKey === date && r.isDone).length : 0;
+            if (rCount > 0) {
+              actualSum += rCount;
+            } else {
+              const m = userActuals.find(a => a.kpiId === kpi.id && a.userId === u.id && a.date === date);
+              if (m) actualSum += m.actualValue;
+            }
+
+            // Target
+            let periodTarget = userTargets.find(t => t.kpiId === kpi.id && t.userId === u.id && t.dateKey === date)?.targetValue;
+            if (periodTarget === undefined) {
+              periodTarget = userTargets.find(t => t.kpiId === kpi.id && t.userId === u.id && !t.dateKey)?.targetValue;
+            }
+            if (periodTarget === undefined) {
+              periodTarget = Number(kpi.hasTarget) || 0;
+            }
+            targetSum += periodTarget;
+          });
+        } else {
+          // For non-daily KPIs (Weekly/Monthly/Yearly)
+          // We filter by checking if the date/dateKey matches the dateRange using our matching helper.
+          const relevantManual = userActuals.filter(a => 
+            a.kpiId === kpi.id && 
+            a.userId === u.id &&
+            isKeyInPeriod(a.date, dateRange.start, dateRange.end)
+          );
+          
+          const relevantReports = reports ? reports.filter(r => 
+            r.kpiId === kpi.id && 
+            r.userId === u.id && 
+            r.isDone &&
+            isKeyInPeriod(r.dateKey, dateRange.start, dateRange.end)
+          ) : [];
+
+          const userDateSet = new Set([
+            ...relevantManual.map(a => a.date),
+            ...relevantReports.map(r => r.dateKey)
+          ]);
+
+          let kpiActual = 0;
+          let kpiTarget = 0;
+
+          userDateSet.forEach(dateKey => {
+            const rCount = relevantReports.filter(r => r.dateKey === dateKey).length;
+            if (rCount > 0) {
+              kpiActual += rCount;
+            } else {
+              const m = relevantManual.find(a => a.date === dateKey);
+              if (m) kpiActual += m.actualValue;
+            }
+            
+            let periodTarget = userTargets.find(t => t.kpiId === kpi.id && t.userId === u.id && t.dateKey === dateKey)?.targetValue;
+            if (periodTarget === undefined) {
+              periodTarget = userTargets.find(t => t.kpiId === kpi.id && t.userId === u.id && !t.dateKey)?.targetValue;
+            }
+            if (periodTarget === undefined) {
+              periodTarget = Number(kpi.hasTarget) || 0;
+            }
+            kpiTarget += periodTarget;
+          });
+
+          // Fallback to base target if target is still 0
+          if (kpiTarget === 0 && userDateSet.size === 0) {
+            let t = userTargets.find(t => t.kpiId === kpi.id && t.userId === u.id && !t.dateKey)?.targetValue;
+            if (t === undefined) t = Number(kpi.hasTarget) || 0;
+            kpiTarget = t;
+          }
+
+          actualSum += kpiActual;
+          targetSum += kpiTarget;
+        }
+      });
+
+      if (targetSum === 0) targetSum = 100;
+      scoreMap[u.id] = { actual: actualSum, target: targetSum };
+    });
+
+    return leaderboardUsers
+      .map(u => {
+        const actual = scoreMap[u.id]?.actual ?? 0;
+        const target = scoreMap[u.id]?.target ?? 100;
+        const pct = Math.min((actual / target) * 100, 999);
+        return {
+          ...u,
+          actual,
+          target,
+          pct,
+        };
+      })
+      .sort((a, b) => {
+        if (b.pct !== a.pct) {
+          return b.pct - a.pct;
+        }
+        return b.actual - a.actual;
+      });
+  }, [users, viewLevel, viewFilter, kpiDefs, userActuals, userTargets, reports, dateRange]);
 
   const exportExcelStyle = () => {
     try {
@@ -417,28 +585,42 @@ export default function ReportsPage() {
                               </div>
                            </td>
                            <td className="py-5 text-right">
-                               <div className="inline-block w-[130px] h-[40px]">
+                               <div className="inline-block w-[130px] h-[40px] pl-4 overflow-hidden">
                                   <ResponsiveContainer width="100%" height="100%">
-                                     <AreaChart data={item.history} margin={{ top: 2, right: 2, left: 2, bottom: 2 }}>
+                                     <ComposedChart data={item.history} margin={{ top: 2, right: 2, left: 2, bottom: 2 }}>
+                                        <defs>
+                                          <linearGradient id={`grad-report-${item.id}`} x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.4}/>
+                                            <stop offset="95%" stopColor="#38bdf8" stopOpacity={0}/>
+                                          </linearGradient>
+                                        </defs>
                                         <Area 
                                           type="linear" 
                                           dataKey="actual" 
-                                          stroke="#1890ff" 
-                                          fill="#91d5ff" 
-                                          fillOpacity={0.5} 
+                                          stroke="#38bdf8" 
                                           strokeWidth={1.5}
-                                          dot={{ r: 1.2, fill: '#1890ff', strokeWidth: 0 }}
+                                          fill={`url(#grad-report-${item.id})`}
+                                          dot={(props: any) => {
+                                            const { cx, cy } = props;
+                                            if (cx == null || cy == null) return null;
+                                            return <rect key={`dot-${cx}-${cy}`} x={cx - 1.5} y={cy - 1.5} width={3} height={3} fill="#38bdf8" />;
+                                          }}
                                           isAnimationActive={false}
                                         />
                                         <Line 
                                           type="linear" 
                                           dataKey="target" 
-                                          stroke="#72c040" 
-                                          strokeWidth={1.2} 
-                                          dot={{ r: 1.2, fill: '#72c040', strokeWidth: 0 }}
+                                          stroke="#84cc16" 
+                                          strokeWidth={1} 
+                                          activeDot={false}
+                                          dot={(props: any) => {
+                                            const { cx, cy } = props;
+                                            if (cx == null || cy == null) return null;
+                                            return <rect key={`tdot-${cx}-${cy}`} x={cx - 1.5} y={cy - 1.5} width={3} height={3} fill="#84cc16" />;
+                                          }}
                                           isAnimationActive={false}
                                         />
-                                     </AreaChart>
+                                     </ComposedChart>
                                   </ResponsiveContainer>
                                </div>
                             </td>
@@ -468,27 +650,197 @@ export default function ReportsPage() {
              </div>
           </div>
 
+          {/* ===== TOP 5 KPI PERFORMERS LEADERBOARD ===== */}
+          <div className="mt-8 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            {/* Header */}
+            <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#f59e0b] to-[#f97316] flex items-center justify-center shadow-md">
+                  <Trophy size={20} className="text-white" />
+                </div>
+                <div>
+                  <h3 className="text-[16px] font-bold text-gray-800">Top 5 KPI Performers</h3>
+                  <p className="text-[12px] text-gray-400 font-medium">{dateRange.start} &mdash; {dateRange.end}</p>
+                </div>
+              </div>
+              <span className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Leaderboard</span>
+            </div>
+            {/* Leaderboard Table Headers */}
+            {leaderboardData.length > 0 && (
+              <div className="px-6 py-3 bg-gray-50/50 border-b border-gray-100 flex items-center gap-4 text-[11px] font-extrabold text-gray-400 uppercase tracking-widest">
+                <div className="w-7 text-center">Rank</div>
+                <div className="w-8 text-center">Badge</div>
+                <div className="flex-1 min-w-0">Member Info</div>
+                <div className="w-24 text-right text-[#38bdf8] font-black">Actual</div>
+                <div className="w-24 text-right text-[#84cc16] font-black">Target</div>
+                <div className="w-24 text-right text-gray-700 font-black">Target %</div>
+              </div>
+            )}
+
+            {/* Leaderboard rows */}
+            <div className="divide-y divide-gray-50">
+              {leaderboardData.length === 0 ?
+                <div className="py-16 flex flex-col items-center gap-2 text-gray-300">
+                  <Trophy size={36} />
+                  <span className="text-[13px] font-medium">Chưa có dữ liệu thành viên</span>
+                </div>
+              : (showAllLeaderboard ? leaderboardData : leaderboardData.slice(0, 5)).map((member, i) => {
+                /* Badge config */
+                const badges = [
+                  { label: 'Kim cương', emoji: '💎', bg: 'from-[#a5f3fc] to-[#818cf8]', ring: 'ring-[#818cf8]', text: '#818cf8' },
+                  { label: 'Vàng',      emoji: '🥇', bg: 'from-[#fde68a] to-[#f59e0b]', ring: 'ring-[#f59e0b]', text: '#f59e0b' },
+                  { label: 'Bạc',       emoji: '🥈', bg: 'from-[#e2e8f0] to-[#94a3b8]', ring: 'ring-[#94a3b8]', text: '#94a3b8' },
+                  { label: 'Đồng',      emoji: '🥉', bg: 'from-[#fed7aa] to-[#ea580c]', ring: 'ring-[#ea580c]', text: '#ea580c' },
+                  { label: 'Sắt',       emoji: '🏅', bg: 'from-[#f1f5f9] to-[#64748b]', ring: 'ring-[#64748b]', text: '#64748b' },
+                ];
+                const badge = badges[i] || { label: 'Thành viên', emoji: '👤', bg: 'from-[#f1f5f9] to-[#64748b]', ring: 'ring-gray-200', text: '#64748b' };
+
+                /* Avatar color based on index */
+                const avatarColors = [
+                  'from-[#818cf8] to-[#a5f3fc]',
+                  'from-[#f59e0b] to-[#fde68a]',
+                  'from-[#94a3b8] to-[#e2e8f0]',
+                  'from-[#ea580c] to-[#fed7aa]',
+                  'from-[#64748b] to-[#cbd5e1]',
+                ];
+                const avatarColor = avatarColors[i] || 'from-gray-400 to-gray-200';
+
+                const memberName = `${member.firstName || ''} ${member.lastName || ''}`.trim() || 'User';
+
+                const initials = (memberName || 'U')
+                  .split(' ')
+                  .filter(Boolean)
+                  .slice(-2)
+                  .map((w: string) => w[0])
+                  .join('')
+                  .toUpperCase();
+
+                const barColor = i === 0 ? '#818cf8' : i === 1 ? '#f59e0b' : i === 2 ? '#94a3b8' : i === 3 ? '#ea580c' : i === 4 ? '#64748b' : '#94a3b8';
+                const pctCapped = Math.min(member.pct, 100);
+
+                return (
+                  <div key={member.id}
+                    className={`flex items-center gap-4 px-6 py-4 transition-colors hover:bg-gray-50/70 ${
+                      i === 0 ? 'bg-gradient-to-r from-[#f5f3ff]/60 to-white' : ''
+                    }`}
+                  >
+                    {/* Rank number */}
+                    <div className="w-7 text-center">
+                      <span className={`text-[15px] font-black ${
+                        i === 0 ? 'text-[#818cf8]' : i === 1 ? 'text-[#f59e0b]' : i === 2 ? 'text-[#94a3b8]' : 'text-gray-400'
+                      }`}>{i + 1}</span>
+                    </div>
+
+                    {/* Badge icon */}
+                    <div className="text-[22px] select-none w-8 text-center" title={badge.label}>
+                      {badge.emoji}
+                    </div>
+
+                    {/* Avatar */}
+                    <div className="relative shrink-0">
+                      {member.avatar ? (
+                        <img 
+                          src={member.avatar} 
+                          alt={memberName} 
+                          className={`w-11 h-11 rounded-full object-cover shadow-md ring-2 ${
+                            i === 0 ? 'ring-[#818cf8]/40' : i === 1 ? 'ring-[#f59e0b]/40' : i === 2 ? 'ring-[#94a3b8]/40' : 'ring-gray-200'
+                          }`}
+                        />
+                      ) : (
+                        <div className={`w-11 h-11 rounded-full bg-gradient-to-br ${avatarColors[i]} flex items-center justify-center text-white font-black text-[14px] shadow-md ring-2 ${
+                          i === 0 ? 'ring-[#818cf8]/40' : i === 1 ? 'ring-[#f59e0b]/40' : i === 2 ? 'ring-[#94a3b8]/40' : 'ring-gray-200'
+                        }`}>
+                          {initials || '?'}
+                        </div>
+                      )}
+                      {/* Crown for #1 */}
+                      {i === 0 && (
+                        <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-[16px]">👑</span>
+                      )}
+                    </div>
+
+                    {/* User info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-[14px] text-gray-800 truncate">{memberName}</span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full`}
+                          style={{ background: barColor + '22', color: barColor }}>
+                          {badge.label}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[11px] text-gray-400 font-medium truncate">
+                          🏢 {(member as any).department || 'Chưa có bộ phận'}
+                        </span>
+                        <span className="text-gray-200">·</span>
+                        <span className="text-[11px] text-gray-400 font-medium capitalize">{(member as any).role || 'User'}</span>
+                      </div>
+                      {/* Progress bar */}
+                      <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden w-full max-w-[200px]">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{ width: `${pctCapped}%`, background: barColor }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Columns for Actual, Target, and % */}
+                    <div className="w-24 text-right font-extrabold text-[15px] text-[#38bdf8]">
+                      {member.actual.toLocaleString()}
+                    </div>
+                    
+                    <div className="w-24 text-right font-extrabold text-[15px] text-[#84cc16]">
+                      {member.target.toLocaleString()}
+                    </div>
+
+                    <div className="w-24 text-right flex items-center justify-end gap-1">
+                      {member.pct > 100 ? (
+                        <svg width="10" height="12" viewBox="0 0 12 16" className="shrink-0 rotate-180">
+                          <path d="M6 16L0 9H4V0H8V9H12L6 16Z" fill="#15803d" />
+                        </svg>
+                      ) : member.pct < 100 && member.pct > 0 ? (
+                        <svg width="10" height="12" viewBox="0 0 12 16" className="shrink-0">
+                          <path d="M6 16L0 9H4V0H8V9H12L6 16Z" fill="#b91c1c" />
+                        </svg>
+                      ) : null}
+                      <span className="text-[16px] font-black" style={{ color: barColor }}>
+                        {member.pct === 0 ? '0%' : (member.pct % 1 === 0 ? `${member.pct}%` : `${member.pct.toFixed(2)}%`)}
+                      </span>
+                    </div>
+
+                  </div>
+                );
+              })}
+            </div>
+            
+            {/* Show All / Hide button */}
+            {leaderboardData.length > 5 && (
+              <div className="px-6 py-4 flex justify-center border-t border-gray-50 no-print">
+                <button
+                  onClick={() => setShowAllLeaderboard(!showAllLeaderboard)}
+                  className="flex items-center gap-2 text-[13px] font-black text-[#555cf8] hover:text-[#4a51e2] bg-[#555cf8]/5 hover:bg-[#555cf8]/10 px-6 py-2.5 rounded-full transition-all active:scale-95 shadow-sm"
+                >
+                  {showAllLeaderboard ? (
+                    <>Thu gọn <ChevronUp size={16} /></>
+                  ) : (
+                    <>Hiển thị tất cả ({leaderboardData.length}) <ChevronDown size={16} /></>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {/* Footer note */}
+            {leaderboardData.length > 0 &&
+              <div className="px-6 py-3 bg-gray-50/50 border-t border-gray-100">
+                <p className="text-[11px] text-gray-400 font-medium text-center">
+                  {"💡 Xếp hạng dựa trên tỉ lệ hoàn thành KPI (Actual / Target × 100%) trong kỳ được chọn"}
+                </p>
+              </div>
+            }
+          </div>
+
         </div>
       </div>
-      
-      <style jsx global>{`
-        @media print {
-          .no-print { display: none !important; }
-          body { background-color: white !important; }
-          .print-padding { padding: 0 !important; }
-          .print-no-shadow { box-shadow: none !important; }
-          .print-no-border { border: none !important; }
-          .text-print-black { color: black !important; }
-          .text-print-blue { color: #38bdf8 !important; }
-          .text-print-green { color: #84cc16 !important; }
-          .text-print-red { color: #f43f5e !important; }
-          .print-bg-light { background-color: #f1f5f9 !important; -webkit-print-color-adjust: exact; }
-          .print-fill-blue { fill: #bae6fd !important; opacity: 0.4 !important; -webkit-print-color-adjust: exact; }
-          .print-stroke-blue { stroke: #38bdf8 !important; -webkit-print-color-adjust: exact; }
-          .print-fill-red { fill: #fecaca !important; opacity: 0.4 !important; -webkit-print-color-adjust: exact; }
-          .print-stroke-red { stroke: #f43f5e !important; -webkit-print-color-adjust: exact; }
-        }
-      `}</style>
     </div>
   );
 }

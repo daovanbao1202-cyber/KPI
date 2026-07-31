@@ -1,43 +1,49 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs/promises';
-import path from 'path';
+import { DATA_FILE, isLocalStoreWritable, readLocalData, writeJsonFile } from '@/lib/local-store';
+import { requireSession } from '@/lib/auth-server';
 
-const DATA_FILE = path.join(process.cwd(), 'data.json');
-const BACKUP_DIR = 'D:/KPI/KPI App';
-const BACKUP_FILE = path.join(BACKUP_DIR, 'data.json');
+export const runtime = 'nodejs';
+
+/**
+ * Local JSON snapshot used for development and offline work.
+ *
+ * Supabase is the source of truth in production; on a serverless host the
+ * filesystem is read-only, so writes report 503 rather than failing silently
+ * as they previously did.
+ */
 
 export async function GET() {
-  try {
-    // Try local first
-    if (await fs.access(DATA_FILE).then(() => true).catch(() => false)) {
-      const data = await fs.readFile(DATA_FILE, 'utf-8');
-      return NextResponse.json(JSON.parse(data));
-    }
-    // Fallback to Drive D
-    const data = await fs.readFile(BACKUP_FILE, 'utf-8');
-    return NextResponse.json(JSON.parse(data));
-  } catch (error) {
-    return NextResponse.json({ error: 'No data found' }, { status: 404 });
+  const { error } = await requireSession();
+  if (error) return error;
+
+  const data = await readLocalData();
+  if (!data) {
+    return NextResponse.json({ error: 'No local data found' }, { status: 404 });
   }
+  return NextResponse.json(data);
 }
 
 export async function POST(request: Request) {
+  const { error } = await requireSession();
+  if (error) return error;
+
+  if (!isLocalStoreWritable()) {
+    return NextResponse.json(
+      {
+        error: 'Bộ nhớ tệp cục bộ không khả dụng trên môi trường này. Dữ liệu được lưu qua Supabase.',
+      },
+      { status: 503 }
+    );
+  }
+
   try {
     const body = await request.json();
-    const dataString = JSON.stringify(body, null, 2);
-    
-    // 1. Save to local project directory
-    await fs.writeFile(DATA_FILE, dataString, 'utf-8');
-    
-    // 2. Save to Drive D (Backup)
-    try {
-      await fs.writeFile(BACKUP_FILE, dataString, 'utf-8');
-    } catch (e) {
-      console.warn('Failed to save backup to Drive D. Ensure drive is connected.');
+    const written = await writeJsonFile(DATA_FILE, body);
+    if (!written) {
+      return NextResponse.json({ error: 'Không ghi được tệp dữ liệu.' }, { status: 500 });
     }
-    
     return NextResponse.json({ success: true });
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to save data' }, { status: 500 });
+  } catch (writeError) {
+    return NextResponse.json({ error: (writeError as Error).message }, { status: 500 });
   }
 }

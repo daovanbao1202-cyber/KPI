@@ -94,7 +94,7 @@ export default function GroupsPage() {
          {/* Groups List */}
          <div className="bg-white rounded-lg shadow-sm border border-gray-100 max-w-2xl mx-auto p-4 mb-20 min-h-[150px]">
             {groups.length === 0 && (
-               <div className="p-8 text-center text-gray-400 text-sm">No groups created yet. Click "Add a Group" to start.</div>
+               <div className="p-8 text-center text-gray-400 text-sm">No groups created yet. Click “Add a Group” to start.</div>
             )}
             
             {groups.map((group) => (

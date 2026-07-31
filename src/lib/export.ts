@@ -10,7 +10,15 @@ export function exportToExcel(data: any[], fileName: string) {
   const wb = xlsx.utils.book_new();
   xlsx.utils.book_append_sheet(wb, ws, 'Report');
   
-  xlsx.writeFile(wb, `${fileName}.xlsx`);
+  // Use highly compatible array type + Blob to avoid file corruption on modern browsers/WPS
+  const wbout = xlsx.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${fileName}.xlsx`;
+  a.click();
+  window.URL.revokeObjectURL(url);
 }
 
 /**

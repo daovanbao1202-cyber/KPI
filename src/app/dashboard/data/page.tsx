@@ -14,15 +14,16 @@ function DataEntryContent() {
   const freqParam = searchParams.get('frequency') as Frequency;
   const kpiIdParam = searchParams.get('kpiId');
   
-  const [frequency, setFrequency] = useState<Frequency>('daily');
+  const isValidFrequency = ['daily', 'weekly', 'monthly', 'yearly'].includes(freqParam);
+
+  // Derived from the URL rather than synced into state through an effect,
+  // which avoided a cascading extra render.
+  const [overrideFrequency, setOverrideFrequency] = useState<Frequency | null>(null);
+  const frequency: Frequency = overrideFrequency ?? (isValidFrequency ? freqParam : 'daily');
+  const setFrequency = (next: Frequency) => setOverrideFrequency(next);
+
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
-  
-  useEffect(() => {
-    if (freqParam && ['daily', 'weekly', 'monthly', 'yearly'].includes(freqParam)) {
-      setFrequency(freqParam);
-    }
-  }, [freqParam]);
-  
+
   const currentUser = users.find(u => u.id === loggedInUserId);
 
 
@@ -41,7 +42,7 @@ function DataEntryContent() {
               onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
               className="flex items-center gap-2 font-bold text-gray-700 bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-lg shadow-sm hover:bg-gray-100 transition-colors text-[13px]"
             >
-              {currentUser?.avatar ? <img src={currentUser.avatar} className="w-5 h-5 rounded-full object-cover" /> : <UserCircle size={20} className="text-gray-400" />}
+              {currentUser?.avatar ? <img src={currentUser.avatar} alt="" className="w-5 h-5 rounded-full object-cover" /> : <UserCircle size={20} className="text-gray-400" />}
               {currentUser ? `${currentUser?.firstName} ${currentUser?.lastName}` : 'Unknown User'} 
               <span className="text-[10px] bg-[#555cf8] text-white px-1.5 py-0.5 rounded-md ml-1">{currentUser?.role}</span>
               <ChevronDown size={14} className="text-gray-400 ml-1" />
@@ -64,7 +65,7 @@ function DataEntryContent() {
                       className={`w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-3 transition-colors ${loggedInUserId === u.id ? 'bg-blue-50/50 relative' : ''}`}
                     >
                       {loggedInUserId === u.id && <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#555cf8]"></div>}
-                      {u.avatar ? <img src={u.avatar} className="w-7 h-7 rounded-full object-cover shadow-sm border border-gray-100" /> : <UserCircle size={28} className="text-gray-400" />}
+                      {u.avatar ? <img src={u.avatar} alt="" className="w-7 h-7 rounded-full object-cover shadow-sm border border-gray-100" /> : <UserCircle size={28} className="text-gray-400" />}
                       <div className="flex flex-col">
                          <span className="text-[13px] font-bold text-gray-700 leading-tight">{u.firstName} {u.lastName}</span>
                          <span className="text-[10px] text-gray-400">{u.role} - {u.position}</span>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Plus, Trash2, ExternalLink, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useKPI, KPIReport } from '@/context/KPIContext';
 
@@ -12,21 +12,34 @@ interface ReportTableModalProps {
 }
 
 export default function ReportTableModal({ kpiId, dateKey, label, onClose }: ReportTableModalProps) {
-  const { kpiDefs, currentUser, reports, addReport, updateReport, deleteReport, users } = useKPI();
+  const { kpiDefs, currentUser, reports, addReport, updateReport, deleteReport, users, loggedInUserId } = useKPI();
   
   const kpi = kpiDefs.find(k => k.id === kpiId);
-  const periodReports = reports.filter(r => r.kpiId === kpiId && r.dateKey === dateKey);
+  const activeUserId = loggedInUserId || currentUser?.id || 1;
+
+  // Auto-migrate reports created under admin ID (1) to the impersonated user (activeUserId) if they are currently viewing/editing
+  useEffect(() => {
+    if (activeUserId && currentUser && activeUserId !== currentUser.id) {
+      reports.forEach(r => {
+        if (r.kpiId === kpiId && r.dateKey === dateKey && r.userId === currentUser.id) {
+          updateReport(r.id, { userId: activeUserId, picId: activeUserId });
+        }
+      });
+    }
+  }, [activeUserId, currentUser, kpiId, dateKey, reports, updateReport]);
+
+  const periodReports = reports.filter(r => r.kpiId === kpiId && r.dateKey === dateKey && r.userId === activeUserId);
 
   const handleAddRow = () => {
     addReport({
       kpiId,
-      userId: currentUser?.id || 1,
+      userId: activeUserId,
       dateKey,
       month: label,
       customer: '',
       type: 'Demo',
       reportName: '',
-      picId: currentUser?.id || 1,
+      picId: activeUserId,
       url: '',
       status: 'Not yet',
       date: new Date().toISOString().split('T')[0],
@@ -193,7 +206,7 @@ export default function ReportTableModal({ kpiId, dateKey, label, onClose }: Rep
                        <AlertCircle size={48} strokeWidth={1} />
                        <div className="flex flex-col gap-1">
                           <p className="text-lg font-bold">No reports yet</p>
-                          <p className="text-sm">Click "Add Report" to create your first report for this period.</p>
+                          <p className="text-sm">Click “Add Report” to create your first report for this period.</p>
                        </div>
                     </div>
                   </td>

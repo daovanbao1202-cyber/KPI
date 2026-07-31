@@ -1,28 +1,25 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useKPI } from '@/context/KPIContext';
 import TopNav from './TopNav';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { currentUser, isHydrated } = useKPI();
+  const { currentUser, isHydrated, isAuthResolved } = useKPI();
   const router = useRouter();
-  const [isReady, setIsReady] = useState(false);
+
+  // Readiness is derived, not stored, so no extra render is triggered.
+  const isReady = isHydrated && isAuthResolved && !!currentUser;
 
   useEffect(() => {
-    if (!isHydrated) return;
-    
-    // Check local storage directly for faster initial check if needed
-    const savedUser = localStorage.getItem('kpi_current_user');
-    if (!savedUser && !currentUser) {
-      router.push('/login');
-    } else {
-      setIsReady(true);
-    }
-  }, [currentUser, router, isHydrated]);
+    // Wait for the server to confirm the session; localStorage is no longer
+    // trusted as proof of identity.
+    if (!isHydrated || !isAuthResolved) return;
+    if (!currentUser) router.push('/login');
+  }, [currentUser, router, isHydrated, isAuthResolved]);
 
-  if (!isReady || !isHydrated) {
+  if (!isReady) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50 dark:bg-slate-900 transition-colors duration-500">
         <div className="flex flex-col items-center gap-6 animate-in fade-in zoom-in duration-700">

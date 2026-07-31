@@ -3,9 +3,14 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Supabase URL or Anon Key is missing. Please check your .env.local file.');
+export const isOnline = !!supabaseUrl && !!supabaseAnonKey && supabaseUrl !== 'YOUR_SUPABASE_URL';
+
+if (!isOnline) {
+  console.warn('Supabase is not configured or configured with dummy values. Running in OFFLINE mode.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-export const isOnline = !!supabaseUrl && !!supabaseAnonKey && supabaseUrl !== 'YOUR_SUPABASE_URL';
+// Khởi tạo an toàn: nếu offline, sử dụng URL và key dummy để tránh crash lúc load module
+const finalUrl = isOnline ? supabaseUrl : 'https://placeholder-co-db-does-not-exist.supabase.co';
+const finalKey = isOnline ? supabaseAnonKey : 'dummy-anon-key';
+
+export const supabase = createClient(finalUrl, finalKey);

@@ -12,14 +12,18 @@ export function calculateTrend(current: number, previous: number): number {
   return parseFloat((((current - previous) / previous) * 100).toFixed(1));
 }
 
-export function aggregateActuals(actuals: any[], kpiId: string, userIds?: number[]): number {
+import type { UserActual, UserTarget } from '@/context/KPIContext';
+
+/** Sums recorded values. The field is `actualValue`, not `value`. */
+export function aggregateActuals(actuals: UserActual[], kpiId: string, userIds?: number[]): number {
   return actuals
     .filter(a => a.kpiId === kpiId && (!userIds || userIds.includes(a.userId)))
-    .reduce((sum, curr) => sum + (curr.value || 0), 0);
+    .reduce((sum, curr) => sum + (Number(curr.actualValue) || 0), 0);
 }
 
-export function aggregateTargets(targets: any[], kpiId: string, userIds?: number[]): number {
+/** Sums assigned targets. The field is `targetValue`, not `value`. */
+export function aggregateTargets(targets: UserTarget[], kpiId: string, userIds?: number[]): number {
   return targets
     .filter(t => t.kpiId === kpiId && (!userIds || userIds.includes(t.userId)))
-    .reduce((sum, curr) => sum + (curr.value || 0), 0);
+    .reduce((sum, curr) => sum + (Number(curr.targetValue) || 0), 0);
 }

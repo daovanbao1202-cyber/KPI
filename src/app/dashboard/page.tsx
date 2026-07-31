@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { BarGraph, KPIDonutChart, GaugeChart, LineGraph, SingleKPI, StackedKpiGraph, MultipleKpiSeries, RagColumnGraph, MultiKpiPieChart } from '@/components/dashboard/Charts';
+import { BarGraph, KPIDonutChart, GaugeChart, LineGraph, SingleKPI, StackedKpiGraph, MultipleKpiSeries, RagColumnGraph, MultiKpiPieChart, KPIList } from '@/components/dashboard/Charts';
 import { Target, TrendingDown, TrendingUp, Plus, LayoutDashboard, ChevronDown, List, Eye, Maximize2, Trash2, PieChart, Network, LineChart, BarChart, Target as GaugeIcon, BarChart2, Users, AlertCircle } from 'lucide-react';
 import { useKPI, DashboardChart } from '@/context/KPIContext';
 import ViewSelector from '@/components/dashboard/ViewSelector';
@@ -9,12 +9,12 @@ import ChartSelector from '@/components/dashboard/ChartSelector';
 import ChartModal from '@/components/dashboard/ChartModal';
 
 
-import { sendEmailAlert, checkThresholds } from '@/lib/alerts';
+import { findUnderperformingUsers } from '@/lib/alerts';
 
 export default function DashboardsPage() {
-  const { 
+  const {
     visibleKpiDefs: kpiDefs, currentUser, viewLevel, viewFilter, users,
-    dashboardCharts, addDashboardChart, removeDashboardChart, userActuals 
+    dashboardCharts, addDashboardChart, removeDashboardChart, userActuals, userTargets, saveToDisk
   } = useKPI();
   
   const [isChartSelectorOpen, setIsChartSelectorOpen] = useState(false);
@@ -27,24 +27,50 @@ export default function DashboardsPage() {
     setIsChartSelectorOpen(false);
   };
 
+  /**
+   * Warns users whose actual completion is under 80%. Performance is computed
+   * from real actuals and targets, and the email is sent by the server.
+   */
   const handleSendAlerts = async () => {
     setIsSendingAlerts(true);
-    setAlertStatus('Analyzing performance...');
-    
-    let sentCount = 0;
-    
-    // Logic: Look for users with performance < 80%
-    for (const user of users) {
-       // Mock performance check for the user
-       const performance = Math.random() * 100; // Simulated for now
-       if (performance < 80) {
-          setAlertStatus(`Sending email to ${user.firstName}...`);
-          await sendEmailAlert(user.email, user.firstName, 'Overall KPI Target', performance);
-          sentCount++;
-       }
+    setAlertStatus('Đang phân tích hiệu suất...');
+
+    const underperforming = findUnderperformingUsers(users, kpiDefs, userActuals, userTargets);
+
+    if (underperforming.length === 0) {
+      setAlertStatus('Không có ai dưới ngưỡng 80%.');
+      setTimeout(() => {
+        setIsSendingAlerts(false);
+        setAlertStatus(null);
+      }, 3000);
+      return;
     }
-    
-    setAlertStatus(`Successfully sent ${sentCount} warning emails!`);
+
+    setAlertStatus(`Đang gửi cho ${underperforming.length} người...`);
+
+    try {
+      const res = await fetch('/api/notifications/check-kpi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userIds: underperforming.map(({ user }) => user.id),
+          title: 'Cảnh báo hiệu suất KPI',
+          message:
+            'Hệ thống ghi nhận mức hoàn thành KPI của bạn đang dưới 80% so với chỉ tiêu. ' +
+            'Vui lòng rà soát và cập nhật kết quả công việc.',
+        }),
+      });
+      const payload = await res.json();
+
+      setAlertStatus(
+        res.ok
+          ? `Đã gửi cảnh báo cho ${underperforming.length} người.`
+          : payload.error || 'Gửi cảnh báo không thành công.'
+      );
+    } catch {
+      setAlertStatus('Không kết nối được tới máy chủ.');
+    }
+
     setTimeout(() => {
       setIsSendingAlerts(false);
       setAlertStatus(null);
@@ -62,6 +88,7 @@ export default function DashboardsPage() {
         ...config
       });
       setSelectedChartType(null);
+      setTimeout(() => saveToDisk(), 100);
     }
   };
 
@@ -81,7 +108,7 @@ export default function DashboardsPage() {
                 Hello, {currentUser?.firstName}! 👋
               </h1>
               <p className="text-slate-500 dark:text-slate-400 font-medium">
-                You are currently viewing <span className="text-brand-primary font-bold">"{currentViewName}"</span> performance.
+                You are currently viewing <span className="text-brand-primary font-bold">“{currentViewName}”</span> performance.
               </p>
            </div>
            
@@ -141,7 +168,7 @@ export default function DashboardsPage() {
                 
                 {dashboardCharts.map((chart, index) => {
                   const kpi = kpiDefs.find(k => k.id === chart.kpiId);
-                  const isFullWidth = ['bar', 'column', 'line', 'multi-series', 'stacked', 'rag-column'].includes(chart.type);
+                  const isFullWidth = ['bar', 'column', 'line', 'multi-series', 'stacked', 'rag-column', 'kpiList'].includes(chart.type);
                   
                   return (
                     <div 
@@ -159,6 +186,7 @@ export default function DashboardsPage() {
                               {chart.type === 'multi-series' && <Network size={24} />}
                               {(chart.type === 'pie' || chart.type === 'multi-pie') && <PieChart size={24} />}
                               {chart.type === 'gauge' && <GaugeIcon size={24} />}
+                              {chart.type === 'kpiList' && <List size={24} />}
                            </div>
                            <div>
                               <div className="text-[10px] text-slate-400 dark:text-slate-500 font-bold mb-1 uppercase tracking-[0.2em]">{chart.dateRange.start} - {chart.dateRange.end}</div>
@@ -167,18 +195,22 @@ export default function DashboardsPage() {
                         </div>
                         <div className="flex gap-2">
                           <button 
-                            onClick={() => removeDashboardChart(chart.id)}
-                            className="opacity-0 group-hover:opacity-100 p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-all"
+                            onClick={() => {
+                              removeDashboardChart(chart.id);
+                              setTimeout(() => saveToDisk(), 100);
+                            }}
+                            className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-all"
+                            title="Delete Chart"
                           >
                             <Trash2 size={18} />
                           </button>
-                          <button className="p-2 text-slate-300 hover:text-brand-primary hover:bg-brand-primary/5 rounded-xl transition-all">
+                          <button className="p-2 text-slate-400 hover:text-brand-primary hover:bg-brand-primary/5 rounded-xl transition-all">
                             <Maximize2 size={18} />
                           </button>
                         </div>
                       </div>
 
-                      {!['stacked', 'multi-series', 'multi-pie'].includes(chart.type) && kpi && (
+                      {!['stacked', 'multi-series', 'multi-pie', 'kpiList'].includes(chart.type) && kpi && (
                         <div className="inline-flex items-center gap-2 px-3 py-1 bg-slate-50 dark:bg-slate-800/50 rounded-full mb-6 border border-slate-100 dark:border-slate-700/50">
                           <span className="text-sm">{kpi.icon || '🎯'}</span>
                           <span className="font-bold text-slate-600 dark:text-slate-300 text-[11px] uppercase tracking-wider">{kpi.name}</span>
@@ -195,6 +227,7 @@ export default function DashboardsPage() {
                         {chart.type === 'pie' && <div className="w-full justify-center flex"><KPIDonutChart kpiId={chart.kpiId} dateRange={chart.dateRange} /></div>}
                         {chart.type === 'multi-pie' && <MultiKpiPieChart kpiIds={chart.kpiIds} dateRange={chart.dateRange} />}
                         {chart.type === 'gauge' && <div className="w-full mt-4"><GaugeChart kpiId={chart.kpiId} dateRange={chart.dateRange} /></div>}
+                        {chart.type === 'kpiList' && <KPIList kpiIds={chart.kpiIds} dateRange={chart.dateRange} />}
                       </div>
 
                       <div className="absolute bottom-6 left-8 opacity-40 hover:opacity-100 transition-opacity">
@@ -212,7 +245,7 @@ export default function DashboardsPage() {
                     <Plus size={64} strokeWidth={1} />
                     <div className="text-center group cursor-pointer" onClick={() => setIsChartSelectorOpen(true)}>
                       <p className="text-2xl font-black text-slate-400 dark:text-slate-600 mb-2">Build Your Intelligence</p>
-                      <p className="text-sm font-medium hover:text-brand-primary transition-colors hover:underline underline-offset-4">Click "Add a chart" to start visualizing</p>
+                      <p className="text-sm font-medium hover:text-brand-primary transition-colors hover:underline underline-offset-4">Click “Add a chart” to start visualizing</p>
                     </div>
                   </div>
                 )}

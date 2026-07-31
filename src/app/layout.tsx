@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { KPIProvider } from '@/context/KPIContext';
@@ -13,12 +13,17 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+export const viewport: Viewport = {
+  themeColor: '#555cf8',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+};
+
 export const metadata: Metadata = {
   title: "KPI Management System",
   description: "Advanced KPI Tracking and Reporting Application",
   manifest: '/manifest.json',
-  themeColor: '#555cf8',
-  viewport: 'width=device-width, initial-scale=1, maximum-scale=1',
   icons: {
     icon: '/kpi_app_icon_1778028960513.jpg',
     apple: '/kpi_app_icon_1778028960513.jpg',

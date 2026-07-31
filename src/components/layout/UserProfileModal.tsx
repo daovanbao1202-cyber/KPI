@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Upload, UserCircle, Shield, Bell, Moon, Sun, Globe, Mail, Key, HardDrive, Download, RefreshCw, AlertTriangle } from 'lucide-react';
+import { X, Upload, UserCircle, Shield, Bell, Moon, Sun, Globe, Mail, Key, HardDrive, Download, RefreshCw, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { useKPI, User } from '@/context/KPIContext';
+import { compressImageToDataUrl } from '@/lib/image';
 
 interface UserProfileModalProps {
   isOpen: boolean;
@@ -25,6 +26,13 @@ export default function UserProfileModal({ isOpen, onClose, type }: UserProfileM
     position: '',
     avatar: ''
   });
+
+  // Change password states
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
 
   useEffect(() => {
     setActiveTab(type);
@@ -51,15 +59,48 @@ export default function UserProfileModal({ isOpen, onClose, type }: UserProfileM
     }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData({ ...formData, avatar: reader.result as string });
-      };
-      reader.readAsDataURL(file);
+  /** The server verifies the current password and stores the new hash. */
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError('');
+    setPasswordSuccess('');
+
+    if (!currentUser) return;
+
+    if (newPassword !== confirmNewPassword) {
+      setPasswordError('Mật khẩu mới không trùng khớp / New passwords do not match.');
+      return;
     }
+
+    try {
+      const res = await fetch('/api/auth/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const payload = await res.json();
+
+      if (!res.ok) {
+        setPasswordError(payload.error || 'Không đổi được mật khẩu.');
+        return;
+      }
+
+      setPasswordSuccess('Mật khẩu đã được thay đổi thành công! / Password changed successfully!');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+    } catch {
+      setPasswordError('Không kết nối được tới máy chủ.');
+    }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Downscale before storing to keep the saved payload small.
+    const avatar = await compressImageToDataUrl(file);
+    setFormData(prev => ({ ...prev, avatar }));
   };
 
   return (
@@ -205,7 +246,7 @@ export default function UserProfileModal({ isOpen, onClose, type }: UserProfileM
                             <div className="flex items-center gap-3">
                                <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center text-orange-600">
                                   <Key size={16} />
-                               </div>
+                                </div>
                                <div className="flex flex-col">
                                   <span className="text-sm font-bold text-gray-800 uppercase tracking-tighter">Two-Factor Authentication</span>
                                   <span className="text-[11px] text-gray-400">Add an extra layer of security to your account</span>
@@ -233,6 +274,71 @@ export default function UserProfileModal({ isOpen, onClose, type }: UserProfileM
                             </div>
                          </div>
                       </div>
+                   </section>
+
+                   {/* Change Password */}
+                   <section className="bg-slate-50/50 p-6 rounded-2xl border border-slate-100/80">
+                      <h3 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <Key size={16} className="text-gray-400" /> Thay đổi mật khẩu / Change Password
+                      </h3>
+                      
+                      {passwordError && (
+                         <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-2.5 rounded-xl mb-4 text-xs font-semibold flex items-center gap-2">
+                            <AlertTriangle size={14} className="shrink-0" />
+                            <span>{passwordError}</span>
+                         </div>
+                      )}
+
+                      {passwordSuccess && (
+                         <div className="bg-emerald-50 border border-emerald-200 text-emerald-600 px-4 py-2.5 rounded-xl mb-4 text-xs font-semibold flex items-center gap-2">
+                            <CheckCircle2 size={14} className="shrink-0" />
+                            <span>{passwordSuccess}</span>
+                         </div>
+                      )}
+
+                      <form onSubmit={handleChangePassword} className="space-y-4">
+                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                               <label className="block text-xs font-bold text-gray-600 mb-1.5">Mật khẩu hiện tại / Current Password</label>
+                               <input 
+                                  type="password" 
+                                  required
+                                  value={currentPassword}
+                                  onChange={e => setCurrentPassword(e.target.value)}
+                                  placeholder="••••••••" 
+                                  className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#555cf8] transition-colors" 
+                               />
+                            </div>
+                            <div>
+                               <label className="block text-xs font-bold text-gray-600 mb-1.5">Mật khẩu mới / New Password</label>
+                               <input 
+                                  type="password" 
+                                  required
+                                  value={newPassword}
+                                  onChange={e => setNewPassword(e.target.value)}
+                                  placeholder="••••••••" 
+                                  className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#555cf8] transition-colors" 
+                               />
+                            </div>
+                            <div>
+                               <label className="block text-xs font-bold text-gray-600 mb-1.5">Xác nhận mật khẩu / Confirm Password</label>
+                               <input 
+                                  type="password" 
+                                  required
+                                  value={confirmNewPassword}
+                                  onChange={e => setConfirmNewPassword(e.target.value)}
+                                  placeholder="••••••••" 
+                                  className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#555cf8] transition-colors" 
+                               />
+                            </div>
+                         </div>
+                         <button 
+                            type="submit"
+                            className="bg-[#555cf8] hover:bg-[#4a51e2] text-white font-bold py-2.5 px-5 rounded-xl text-xs shadow-md transition-all active:scale-[0.98]"
+                         >
+                            Update Password
+                         </button>
+                      </form>
                    </section>
 
                    <section>
