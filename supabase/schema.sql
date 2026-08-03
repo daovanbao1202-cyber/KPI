@@ -65,7 +65,8 @@ create index if not exists notifications_user_id_idx
 --   1. SUPABASE_SERVICE_ROLE_KEY on Vercel is a valid `service_role` key.
 --      Without it the server falls back to the anon key, and these policies
 --      would lock the application out of its own database.
---      Verify: sign in on the deployed site. If that works after step 2, good.
+--      Verify: sign in as an Admin and open /api/diagnostics on the deployed
+--      site. Proceed only when it reports "readyForRls": true.
 --
 --   2. The deployment includes the server-side data layer (src/lib/kpi-store.ts).
 --      An older build talks to Supabase from the browser and will go blank.
