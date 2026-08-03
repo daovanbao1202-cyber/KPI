@@ -202,11 +202,20 @@ const CHART_TYPES = [
     icon: ChartIcons.bar 
   },
   { 
-    id: 'multi-pie', 
-    name: 'Three-column Chart', 
-    title: 'Three-column chart', 
+    // Was id 'multi-pie' under this name, so picking "Three-column Chart" drew
+    // a pie. The label describes what people want; the renderer now matches it.
+    id: 'grouped-column',
+    name: 'Three-column Chart',
+    title: 'Three-column chart',
     description: 'Compare actual values across three dimensions side-by-side.',
-    icon: ChartIcons.multiPie 
+    icon: ChartIcons.stacked
+  },
+  {
+    id: 'multi-pie',
+    name: 'Multi-KPI Pie',
+    title: 'Multi-KPI pie chart',
+    description: 'Show the share each KPI contributes to the total, as one pie.',
+    icon: ChartIcons.multiPie
   },
   { 
     id: 'rag-column', 

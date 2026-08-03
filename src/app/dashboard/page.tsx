@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { BarGraph, KPIDonutChart, GaugeChart, LineGraph, SingleKPI, StackedKpiGraph, MultipleKpiSeries, RagColumnGraph, MultiKpiPieChart, KPIList } from '@/components/dashboard/Charts';
+import { BarGraph, KPIDonutChart, GaugeChart, LineGraph, SingleKPI, StackedKpiGraph, MultipleKpiSeries, GroupedKpiColumns, RagColumnGraph, MultiKpiPieChart, KPIList } from '@/components/dashboard/Charts';
 import { Target, TrendingDown, TrendingUp, Plus, LayoutDashboard, ChevronDown, List, Eye, Maximize2, Trash2, PieChart, Network, LineChart, BarChart, Target as GaugeIcon, BarChart2, Users, AlertCircle, Save, CheckCircle2 } from 'lucide-react';
 import { useKPI, DashboardChart } from '@/context/KPIContext';
 import ViewSelector from '@/components/dashboard/ViewSelector';
@@ -17,7 +17,7 @@ import { findUnderperformingUsers } from '@/lib/alerts';
  */
 const RENDERABLE_CHART_TYPES = [
   'column', 'bar', 'rag-column', 'line', 'single', 'stacked', 'multi-series',
-  'pie', 'donut', 'multi-pie', 'gauge', 'gauge-mid', 'gauge-high',
+  'pie', 'donut', 'multi-pie', 'grouped-column', 'gauge', 'gauge-mid', 'gauge-high',
   'kpiList', 'report',
 ];
 
@@ -237,7 +237,7 @@ export default function DashboardsPage() {
                 
                 {dashboardCharts.map((chart, index) => {
                   const kpi = kpiDefs.find(k => k.id === chart.kpiId);
-                  const isFullWidth = ['bar', 'column', 'line', 'multi-series', 'stacked', 'rag-column', 'kpiList'].includes(chart.type);
+                  const isFullWidth = ['bar', 'column', 'line', 'multi-series', 'stacked', 'grouped-column', 'rag-column', 'kpiList', 'report'].includes(chart.type);
                   
                   return (
                     <div
@@ -261,7 +261,7 @@ export default function DashboardsPage() {
                               {(chart.type === 'column' || chart.type === 'bar' || chart.type === 'rag-column') && <BarChart2 size={24} />}
                               {chart.type === 'line' && <LineChart size={24} />}
                               {chart.type === 'single' && <TrendingUp size={24} />}
-                              {chart.type === 'stacked' && <BarChart size={24} />}
+                              {(chart.type === 'stacked' || chart.type === 'grouped-column') && <BarChart size={24} />}
                               {chart.type === 'multi-series' && <Network size={24} />}
                               {(chart.type === 'pie' || chart.type === 'multi-pie' || chart.type === 'donut') && <PieChart size={24} />}
                               {(chart.type === 'gauge' || chart.type === 'gauge-mid' || chart.type === 'gauge-high') && <GaugeIcon size={24} />}
@@ -286,7 +286,7 @@ export default function DashboardsPage() {
                         </div>
                       </div>
 
-                      {!['stacked', 'multi-series', 'multi-pie', 'kpiList'].includes(chart.type) && kpi && (
+                      {!['stacked', 'grouped-column', 'multi-series', 'multi-pie', 'kpiList', 'report'].includes(chart.type) && kpi && (
                         <div className="inline-flex items-center gap-2 px-3 py-1 bg-slate-50 dark:bg-slate-800/50 rounded-full mb-6 border border-slate-100 dark:border-slate-700/50">
                           <span className="text-sm">{kpi.icon || '🎯'}</span>
                           <span className="font-bold text-slate-600 dark:text-slate-300 text-[11px] uppercase tracking-wider">{kpi.name}</span>
@@ -299,6 +299,7 @@ export default function DashboardsPage() {
                         {chart.type === 'line' && <LineGraph kpiId={chart.kpiId} dateRange={chart.dateRange} />}
                         {chart.type === 'single' && <SingleKPI kpiId={chart.kpiId} dateRange={chart.dateRange} />}
                         {chart.type === 'stacked' && <StackedKpiGraph kpiIds={chart.kpiIds} dateRange={chart.dateRange} />}
+                        {chart.type === 'grouped-column' && <GroupedKpiColumns kpiIds={chart.kpiIds} dateRange={chart.dateRange} />}
                         {chart.type === 'multi-series' && <MultipleKpiSeries kpiIds={chart.kpiIds} dateRange={chart.dateRange} />}
                         {/* `donut` is the selector's "Pie Chart"; it shared no renderer before. */}
                         {(chart.type === 'pie' || chart.type === 'donut') && <div className="w-full justify-center flex"><KPIDonutChart kpiId={chart.kpiId} dateRange={chart.dateRange} /></div>}

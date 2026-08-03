@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { X, Calendar as CalendarIcon, ChevronDown, Check, Settings2, BarChart2, PieChart, Target as GaugeIcon, Trash2, LineChart, TrendingUp, BarChart, Network, List } from 'lucide-react';
 import { useKPI, KPIDefinition } from '@/context/KPIContext';
-import { BarGraph, KPIDonutChart, GaugeChart, LineGraph, SingleKPI, StackedKpiGraph, MultipleKpiSeries, RagColumnGraph, MultiKpiPieChart, KPIList } from '@/components/dashboard/Charts';
+import { BarGraph, KPIDonutChart, GaugeChart, LineGraph, SingleKPI, StackedKpiGraph, MultipleKpiSeries, GroupedKpiColumns, RagColumnGraph, MultiKpiPieChart, KPIList } from '@/components/dashboard/Charts';
 import DateRangeSelector from '@/components/common/DateRangeSelector';
 
 interface ChartModalProps {
@@ -27,7 +27,7 @@ export default function ChartModal({ type, onClose, onSave }: ChartModalProps) {
   const [isKpiDropdownOpen, setIsKpiDropdownOpen] = useState(false);
 
   const selectedKpi = kpiDefs.find(k => k.id === selectedKpiId);
-  const isMultiKpi = ['stacked', 'multi-series', 'multi-pie', 'kpiList'].includes(type);
+  const isMultiKpi = ['stacked', 'grouped-column', 'multi-series', 'multi-pie', 'kpiList', 'report'].includes(type);
   const [searchTerm, setSearchTerm] = useState('');
 
   const handleSave = () => {
@@ -288,11 +288,12 @@ export default function ChartModal({ type, onClose, onSave }: ChartModalProps) {
                    {type === 'line' && <LineGraph kpiId={selectedKpiId} dateRange={dateRange} />}
                    {type === 'single' && <SingleKPI kpiId={selectedKpiId} dateRange={dateRange} />}
                    {type === 'stacked' && <StackedKpiGraph kpiIds={selectedKpiIds} dateRange={dateRange} />}
+                   {type === 'grouped-column' && <GroupedKpiColumns kpiIds={selectedKpiIds} dateRange={dateRange} />}
                    {type === 'multi-series' && <MultipleKpiSeries kpiIds={selectedKpiIds} dateRange={dateRange} />}
-                   {type === 'pie' && <KPIDonutChart kpiId={selectedKpiId} dateRange={dateRange} />}
+                   {(type === 'pie' || type === 'donut') && <KPIDonutChart kpiId={selectedKpiId} dateRange={dateRange} />}
                    {type === 'multi-pie' && <MultiKpiPieChart kpiIds={selectedKpiIds} dateRange={dateRange} />}
-                   {type === 'gauge' && <GaugeChart kpiId={selectedKpiId} dateRange={dateRange} />}
-                   {type === 'kpiList' && <KPIList kpiIds={selectedKpiIds} dateRange={dateRange} />}
+                   {(type === 'gauge' || type === 'gauge-mid' || type === 'gauge-high') && <GaugeChart kpiId={selectedKpiId} dateRange={dateRange} />}
+                   {(type === 'kpiList' || type === 'report') && <KPIList kpiIds={selectedKpiIds} dateRange={dateRange} />}
                 </div>
           </div>
         </div>

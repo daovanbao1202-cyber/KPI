@@ -531,6 +531,85 @@ export function StackedKpiGraph({ kpiIds, dateRange }: { kpiIds?: string[], date
   );
 }
 
+/**
+ * Clustered columns: one bar per KPI, side by side within each period — the
+ * shape Excel produces for a multi-series column chart.
+ *
+ * StackedKpiGraph draws the same data but with `stackId`, which piles the bars
+ * on top of each other instead.
+ */
+export function GroupedKpiColumns({ kpiIds, dateRange }: { kpiIds?: string[], dateRange?: { start: string, end: string } }) {
+  const { userActuals, kpiDefs, users, viewLevel, viewFilter, reports } = useKPI();
+  const ids = kpiIds || kpiDefs.slice(0, 3).map(k => k.id);
+
+  const relevantUserIds = users
+    .filter(u => {
+      if (viewLevel === 'Company') return true;
+      if (viewLevel === 'Department') return String(u.department) === String(viewFilter);
+      if (viewLevel === 'Individual') return String(u.id) === String(viewFilter);
+      return false;
+    })
+    .map(u => u.id);
+
+  const dates = resolveDates(dateRange);
+
+  const data = dates.map(({ date, isToday }) => {
+    const dObj = new Date(date);
+    const row: Record<string, string | number> = {
+      name: isToday ? 'Today' : `${dObj.getDate()} ${monthNames[dObj.getMonth()]} ${dObj.getFullYear()}`,
+    };
+
+    ids.forEach(kId => {
+      const kpi = kpiDefs.find(k => k.id === kId);
+      const kpiKey = getKPIKeyForDate(date, kpi?.frequency);
+      let actual = 0;
+
+      relevantUserIds.forEach(uId => {
+        const rCount = reports
+          ? reports.filter(r => r.kpiId === kId && r.userId === uId && r.dateKey === kpiKey && r.isDone).length
+          : 0;
+        if (rCount > 0) {
+          actual += rCount;
+        } else {
+          const m = userActuals.find(
+            a => a.kpiId === kId && a.userId === uId && (a.date === date || a.date === kpiKey)
+          );
+          if (m) actual += m.actualValue;
+        }
+      });
+
+      row[kId] = actual;
+    });
+
+    return row;
+  });
+
+  return (
+    <div className="h-[300px] w-full pt-6">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} barGap={4}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+          <XAxis dataKey="name" axisLine={true} stroke="#cbd5e1" tickLine={true} tick={{ fill: '#64748b', fontSize: 11 }} dy={10} />
+          <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
+          <Tooltip cursor={{ fill: '#f8f9fa' }} />
+          <Legend verticalAlign="bottom" height={36} iconType="square" wrapperStyle={{ fontSize: '12px', paddingTop: '20px' }} />
+          {/* No stackId: Recharts places the bars beside one another. */}
+          {ids.map((id, idx) => (
+            <Bar
+              key={id}
+              name={kpiDefs.find(k => k.id === id)?.name || id}
+              dataKey={id}
+              fill={PIE_COLORS[idx % PIE_COLORS.length]}
+              maxBarSize={40}
+              radius={[4, 4, 0, 0]}
+            />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 export function MultipleKpiSeries({ kpiIds, dateRange }: { kpiIds?: string[], dateRange?: { start: string, end: string } }) {
   const { userActuals, kpiDefs, users, viewLevel, viewFilter, reports } = useKPI();
   const ids = kpiIds || (kpiDefs.map(k => k.id));
