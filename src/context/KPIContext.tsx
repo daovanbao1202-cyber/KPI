@@ -1,7 +1,8 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
-import { supabase, isOnline } from '@/lib/supabase';
+// No Supabase client here: the browser reaches the database only through
+// /api/data, so the anon key never has to leave the server.
 
 // --- Interfaces ---
 
@@ -364,6 +365,38 @@ const safeLocalStorageSet = (key: string, value: string) => {
  */
 let localSnapshotUnavailable = false;
 
+/** Persists the snapshot to Supabase via the server. */
+const saveToCloud = async (snapshot: unknown) => {
+  try {
+    const res = await fetch('/api/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(snapshot),
+    });
+    if (!res.ok && res.status !== 503) {
+      console.error('Cloud save failed', await res.json().catch(() => ({})));
+    }
+  } catch (e) {
+    console.warn('Cloud save request failed', e);
+  }
+};
+
+/** Removes a single row through the server. */
+const deleteFromCloud = async (table: string, id: string | number) => {
+  try {
+    const res = await fetch('/api/data', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ table, id }),
+    });
+    if (!res.ok && res.status !== 503) {
+      console.error(`Cloud delete from ${table} failed`, await res.json().catch(() => ({})));
+    }
+  } catch (e) {
+    console.warn('Cloud delete request failed', e);
+  }
+};
+
 const saveLocalSnapshot = async (data: unknown) => {
   if (localSnapshotUnavailable) return;
   try {
@@ -523,98 +556,16 @@ const saveLocalSnapshot = async (data: unknown) => {
       // Unavailable on serverless hosts, where Supabase is the only store.
       await saveLocalSnapshot(data);
 
-      // Save to Online Database if configured
-      if (isOnline) {
-        console.log('Saving to Supabase...');
-        // Users
-        await supabase.from('users').upsert(users.map(u => ({
-          id: u.id,
-          first_name: u.firstName,
-          last_name: u.lastName,
-          email: u.email,
-          role: u.role,
-          department: u.department,
-          position: u.position,
-          avatar: u.avatar
-        })));
-
-        // KPI Definitions
-        await supabase.from('kpi_definitions').upsert(cleanKpiDefs.map(k => ({
-          id: k.id,
-          name: k.name,
-          unit: k.unit,
-          description: k.description,
-          icon: k.icon,
-          frequency: k.frequency,
-          format: k.format,
-          direction: k.direction,
-          category: k.category,
-          aggregation: k.aggregation,
-          thresholds: k.thresholds,
-          working_days: k.workingDays,
-          formula: k.formula,
-          calculate_this_target: k.calculateThisTarget,
-          has_target: k.hasTarget,
-          custom_values: k.customValues
-        })));
-
-        // Actuals
-        await supabase.from('user_actuals').upsert(userActuals.map(a => ({
-          id: a.id,
-          kpi_id: a.kpiId,
-          user_id: a.userId,
-          date: a.date,
-          actual_value: a.actualValue
-        })));
-
-        // Targets
-        await supabase.from('user_targets').upsert(userTargets.map(t => ({
-          id: t.id,
-          kpi_id: t.kpiId,
-          user_id: t.userId,
-          date_key: t.dateKey,
-          target_value: t.targetValue
-        })));
-
-        // NEW: Save Global UI Settings (Columns, etc.)
-        try {
-          await supabase.from('app_settings').upsert({
-            id: 'global_mbo_settings',
-            custom_columns: customColumns,
-            hidden_cols: hiddenCols,
-            updated_at: new Date().toISOString()
-          });
-        } catch (err) {
-          console.warn('Supabase app_settings table might be missing. Please create it.');
-        }
-
-        // NEW: Save KPI Reports
-        try {
-          if (reports && reports.length > 0) {
-            await supabase.from('kpi_reports').upsert(reports.map(r => ({
-              id: r.id,
-              kpi_id: r.kpiId,
-              user_id: r.userId,
-              date_key: r.dateKey,
-              month: r.month,
-              customer: r.customer,
-              type: r.type,
-              report_name: r.reportName,
-              pic_id: r.picId,
-              url: r.url,
-              status: r.status,
-              date: r.date,
-              note: r.note,
-              is_done: r.isDone
-            })));
-            console.log('KPI reports saved to Cloud');
-          }
-        } catch (err) {
-          console.warn('Supabase kpi_reports table might be missing or failed to save', err);
-        }
-      }
-
-      console.log('Data saved successfully');
+      // 3. Save to the cloud through the server.
+      await saveToCloud({
+        users,
+        kpiDefs: cleanKpiDefs,
+        userActuals,
+        userTargets,
+        reports,
+        customColumns,
+        hiddenCols,
+      });
     } catch (e) {
       console.error('Failed to save data', e);
     }
@@ -625,128 +576,20 @@ const saveLocalSnapshot = async (data: unknown) => {
     isLoadingRef.current = true;
     setIsLoadingCloud(true);
     try {
-      // 1. Try Online Database first
-      if (isOnline) {
-        console.log('Loading from Supabase...');
-        const [
-          { data: dbUsers },
-          { data: dbKpis },
-          { data: dbActuals },
-          { data: dbTargets },
-          { data: dbCharts },
-          { data: dbSettings }
-        ] = await Promise.all([
-          // Explicit columns, not `*`: once SELECT on password_hash is revoked
-          // from the anon role, `select('*')` fails for the whole row.
-          supabase
-            .from('users')
-            .select('id, first_name, last_name, email, role, department, position, avatar'),
-          supabase.from('kpi_definitions').select('*'),
-          supabase.from('user_actuals').select('*'),
-          supabase.from('user_targets').select('*'),
-          supabase.from('dashboard_charts').select('*'),
-          supabase.from('app_settings').select('*').eq('id', 'global_mbo_settings').single()
-        ]);
+      // 1. Cloud first, through the server. The browser no longer holds a
+      // database key of its own.
+      const cloud = await fetch('/api/data');
+      if (cloud.ok) {
+        const data = await cloud.json();
 
-        if (dbUsers && dbUsers.length > 0) {
-          setUsers(dbUsers.map(u => ({
-            id: Number(u.id),
-            firstName: u.first_name,
-            lastName: u.last_name,
-            email: u.email,
-            role: u.role,
-            department: u.department,
-            position: u.position,
-            avatar: u.avatar
-          })));
-        }
-
-        if (dbKpis && dbKpis.length > 0) {
-          const cleanKpis = dbKpis.filter((k: any) => k.name && k.name.trim() !== "");
-          setKpiDefs(cleanKpis.map((k: any) => ({
-            id: k.id,
-            name: k.name,
-            unit: k.unit,
-            description: k.description,
-            icon: k.icon,
-            frequency: k.frequency,
-            format: k.format,
-            direction: k.direction,
-            category: k.category,
-            aggregation: k.aggregation,
-            thresholds: k.thresholds,
-            workingDays: k.working_days,
-            formula: k.formula,
-            calculateThisTarget: k.calculate_this_target,
-            hasTarget: k.has_target,
-            customValues: k.custom_values || {},
-            sheetType: k.sheet_type || 'MBO'
-          })));
-        }
-
-        if (dbSettings) {
-          if (dbSettings.custom_columns) setCustomColumns(dbSettings.custom_columns);
-          if (dbSettings.hidden_cols) setHiddenCols(dbSettings.hidden_cols);
-        }
-
-        if (dbActuals) {
-          setUserActuals(dbActuals.map(a => ({
-            id: a.id,
-            kpiId: a.kpi_id,
-            userId: Number(a.user_id),
-            date: a.date,
-            actualValue: Number(a.actual_value)
-          })));
-        }
-
-        if (dbTargets) {
-          setUserTargets(dbTargets.map(t => ({
-            id: t.id,
-            kpiId: t.kpi_id,
-            userId: Number(t.user_id),
-            dateKey: t.date_key,
-            targetValue: Number(t.target_value)
-          })));
-        }
-
-        if (dbCharts) {
-          setDashboardCharts(dbCharts.map(c => ({
-            id: c.id,
-            type: c.type,
-            kpiId: c.kpi_id,
-            kpiIds: c.kpi_ids,
-            title: c.title,
-            dateRange: c.date_range
-          })));
-        }
-
-        // NEW: Load KPI Reports safely
-        try {
-          const { data: dbReports, error: reportsErr } = await supabase.from('kpi_reports').select('*');
-          if (!reportsErr && dbReports && dbReports.length > 0) {
-            setReports(dbReports.map((r: any) => ({
-              id: r.id,
-              kpiId: r.kpi_id,
-              userId: Number(r.user_id),
-              dateKey: r.date_key,
-              month: r.month,
-              customer: r.customer,
-              type: r.type,
-              reportName: r.report_name,
-              picId: Number(r.pic_id),
-              url: r.url,
-              status: r.status,
-              date: r.date,
-              note: r.note,
-              isDone: r.is_done
-            })));
-            console.log('KPI reports loaded from Cloud');
-          }
-        } catch (err) {
-          console.warn('Failed to load kpi_reports from Supabase', err);
-        }
-        
-        console.log('Online data loaded');
+        if (data.users?.length) setUsers(data.users);
+        if (data.kpiDefs?.length) setKpiDefs(data.kpiDefs);
+        if (data.userActuals) setUserActuals(data.userActuals);
+        if (data.userTargets) setUserTargets(data.userTargets);
+        if (data.dashboardCharts) setDashboardCharts(data.dashboardCharts);
+        if (data.reports?.length) setReports(data.reports);
+        if (data.customColumns) setCustomColumns(data.customColumns);
+        if (data.hiddenCols) setHiddenCols(data.hiddenCols);
 
         // Supabase is the source of truth. Previously the local file was read
         // afterwards and overwrote everything that had just arrived from the
@@ -825,14 +668,7 @@ const saveLocalSnapshot = async (data: unknown) => {
     const updatedUsers = users.filter(item => item.id !== id);
     setUsers(updatedUsers);
     
-    if (isOnline) {
-      try {
-        await supabase.from('users').delete().eq('id', id);
-        console.log('User deleted from Cloud');
-      } catch (err) {
-        console.error('Failed to delete user from Cloud', err);
-      }
-    }
+    await deleteFromCloud('users', id);
   };
 
   const visibleKpiDefs = useMemo(() => {
@@ -889,15 +725,7 @@ const saveLocalSnapshot = async (data: unknown) => {
     const updatedKpis = kpiDefs.filter(item => item.id !== id);
     setKpiDefs(updatedKpis);
     
-    // Immediate deletion from Supabase if online
-    if (isOnline) {
-      try {
-        await supabase.from('kpi_definitions').delete().eq('id', id);
-        console.log('KPI deleted from Cloud');
-      } catch (err) {
-        console.error('Failed to delete KPI from Cloud', err);
-      }
-    }
+    await deleteFromCloud('kpi_definitions', id);
 
     // Persist immediately to disk to prevent merge resurrection on page load
     try {
@@ -1038,14 +866,7 @@ const saveLocalSnapshot = async (data: unknown) => {
 
   const deleteReport = async (id: string) => {
     setReports(prev => prev.filter(r => r.id !== id));
-    if (isOnline) {
-      try {
-        await supabase.from('kpi_reports').delete().eq('id', id);
-        console.log('Report deleted from Cloud');
-      } catch (err) {
-        console.error('Failed to delete report from Cloud', err);
-      }
-    }
+    await deleteFromCloud('kpi_reports', id);
   };
 
   const updateUserSettings = (s: Partial<UserSettings>) => {

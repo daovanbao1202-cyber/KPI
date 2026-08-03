@@ -56,35 +56,33 @@ create index if not exists notifications_user_id_idx
 -- -----------------------------------------------------------------------------
 -- 4. Row Level Security
 -- -----------------------------------------------------------------------------
--- IMPORTANT: this app still reads most KPI tables directly from the browser
--- with the anon key. Enabling RLS with no policy blocks those reads and the
--- dashboard goes blank.
+-- Every database query now runs server-side through /api/data, /api/auth/* and
+-- /api/notifications, each behind a session check. The browser no longer holds
+-- a database key, so RLS can deny anon outright.
 --
--- Pick the stance that matches your deployment:
+-- PREREQUISITES — check both before running this section:
 --
---   (a) Internal network / trusted users — the current shape. Leave RLS off on
---       the KPI tables. The column-level REVOKE above still keeps password
---       hashes out of the browser, which is the critical part.
+--   1. SUPABASE_SERVICE_ROLE_KEY on Vercel is a valid `service_role` key.
+--      Without it the server falls back to the anon key, and these policies
+--      would lock the application out of its own database.
+--      Verify: sign in on the deployed site. If that works after step 2, good.
 --
---   (b) Public internet — move the remaining Supabase reads in
---       src/context/KPIContext.tsx behind Route Handlers that use
---       SUPABASE_SERVICE_ROLE_KEY, then enable the deny-by-default policies
---       below. Until that refactor is done, turning these on will break the
---       dashboard.
---
--- Uncomment for stance (b):
---
--- alter table public.users            enable row level security;
--- alter table public.kpi_definitions  enable row level security;
--- alter table public.user_actuals     enable row level security;
--- alter table public.user_targets     enable row level security;
--- alter table public.dashboard_charts enable row level security;
--- alter table public.kpi_reports      enable row level security;
--- alter table public.app_settings     enable row level security;
--- alter table public.notifications    enable row level security;
+--   2. The deployment includes the server-side data layer (src/lib/kpi-store.ts).
+--      An older build talks to Supabase from the browser and will go blank.
 --
 -- With RLS enabled and no policies created, anon and authenticated are denied
 -- everything while service_role continues to work.
+--
+-- Undo with: alter table <name> disable row level security;
+
+alter table public.users            enable row level security;
+alter table public.kpi_definitions  enable row level security;
+alter table public.user_actuals     enable row level security;
+alter table public.user_targets     enable row level security;
+alter table public.dashboard_charts enable row level security;
+alter table public.kpi_reports      enable row level security;
+alter table public.app_settings     enable row level security;
+alter table public.notifications    enable row level security;
 
 -- -----------------------------------------------------------------------------
 -- 5. One-time cleanup of legacy plaintext passwords

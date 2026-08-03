@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { supabase, isOnline } from './supabase';
 
 /**
@@ -26,3 +26,24 @@ if (isOnline && !hasServiceRole) {
 export const supabaseAdmin = hasServiceRole
   ? createClient(url, serviceRoleKey, { auth: { persistSession: false } })
   : supabase;
+
+interface QueryResult<T> {
+  data: T | null;
+  error: { message: string } | null;
+}
+
+/**
+ * Runs a query with the service-role client, retrying once with the anon client
+ * if it fails. A rejected service-role key would otherwise take the whole app
+ * down silently; this keeps it serving while the misconfiguration is visible in
+ * the logs.
+ */
+export async function queryWithFallback<T>(
+  run: (client: SupabaseClient) => PromiseLike<QueryResult<T>>
+): Promise<QueryResult<T>> {
+  const primary = await run(supabaseAdmin);
+  if (!primary.error || supabaseAdmin === supabase) return primary;
+
+  console.error('Service-role query failed, retrying with the anon key', primary.error);
+  return run(supabase);
+}

@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { Bell, Check } from 'lucide-react';
 import { useKPI } from '@/context/KPIContext';
-import { supabase, isOnline } from '@/lib/supabase';
 
 interface Notification {
   id: string;
@@ -42,29 +41,10 @@ export default function NotificationBell() {
 
     fetchNotifications();
 
-    if (isOnline) {
-      // Subscribe to real-time notifications
-      const channel = supabase
-        .channel('schema-db-changes')
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'notifications',
-            filter: `user_id=eq.${loggedInUserId}`
-          },
-          (payload) => {
-            setNotifications(prev => [payload.new as Notification, ...prev]);
-            setUnreadCount(count => count + 1);
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    }
+    // Polling replaces the Supabase realtime channel, which needed a database
+    // key in the browser. Notifications are not time-critical.
+    const timer = setInterval(fetchNotifications, 60_000);
+    return () => clearInterval(timer);
   }, [loggedInUserId]);
 
   const markAsRead = async (id: string) => {
