@@ -3,7 +3,7 @@
 import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useKPI } from '@/context/KPIContext';
-import { Target, Lock, Mail, ArrowRight, ShieldCheck, Zap, X, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Target, Lock, Mail, ArrowRight, ShieldCheck, Zap, X, CheckCircle2, AlertCircle, Eye, EyeOff } from 'lucide-react';
 
 /** `useSearchParams` requires a Suspense boundary above it. */
 export default function LoginPage() {
@@ -19,6 +19,8 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  // Typing a password you cannot see is the usual reason a correct one "fails".
+  const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const { login } = useKPI();
@@ -30,6 +32,7 @@ function LoginForm() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [setupError, setSetupError] = useState('');
   const [isSettingUp, setIsSettingUp] = useState(false);
+  const [showSetupPassword, setShowSetupPassword] = useState(false);
 
   const destination = searchParams.get('next') || '/dashboard';
 
@@ -194,14 +197,22 @@ function LoginForm() {
                      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 group-focus-within:text-blue-500 transition-colors">
                         <Lock size={18} />
                      </div>
-                     <input 
-                        type="password" 
+                     <input
+                        type={showPassword ? 'text' : 'password'}
                         required
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         placeholder="••••••••"
-                        className="w-full pl-11 pr-4 py-3.5 bg-white border border-slate-200 rounded-xl text-slate-700 focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all shadow-sm"
+                        className="w-full pl-11 pr-12 py-3.5 bg-white border border-slate-200 rounded-xl text-slate-700 focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all shadow-sm"
                      />
+                     <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                        className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-600 transition-colors"
+                     >
+                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                     </button>
                   </div>
                </div>
 
@@ -279,13 +290,21 @@ function LoginForm() {
                                  <Lock size={16} />
                               </div>
                               <input
-                                 type="password"
+                                 type={showSetupPassword ? 'text' : 'password'}
                                  required
                                  value={newPassword}
                                  onChange={(e) => setNewPassword(e.target.value)}
                                  placeholder="Tối thiểu 8 ký tự, gồm chữ và số"
-                                 className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                                 className="w-full pl-10 pr-11 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
                               />
+                              <button
+                                 type="button"
+                                 onClick={() => setShowSetupPassword(!showSetupPassword)}
+                                 aria-label={showSetupPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                                 className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 transition-colors"
+                              >
+                                 {showSetupPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                              </button>
                            </div>
                         </div>
 
@@ -296,12 +315,12 @@ function LoginForm() {
                                  <Lock size={16} />
                               </div>
                               <input
-                                 type="password"
+                                 type={showSetupPassword ? 'text' : 'password'}
                                  required
                                  value={confirmPassword}
                                  onChange={(e) => setConfirmPassword(e.target.value)}
                                  placeholder="Nhập lại mật khẩu"
-                                 className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                                 className="w-full pl-10 pr-11 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
                               />
                            </div>
                         </div>
