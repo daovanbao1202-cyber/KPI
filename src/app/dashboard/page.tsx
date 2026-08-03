@@ -88,7 +88,8 @@ export default function DashboardsPage() {
         ...config
       });
       setSelectedChartType(null);
-      setTimeout(() => saveToDisk(), 100);
+      // Same reason as the delete button: this closure holds the pre-change
+      // list. The autosave effect picks up the new chart with fresh state.
     }
   };
 
@@ -195,10 +196,11 @@ export default function DashboardsPage() {
                         </div>
                         <div className="flex gap-2">
                           <button 
-                            onClick={() => {
-                              removeDashboardChart(chart.id);
-                              setTimeout(() => saveToDisk(), 100);
-                            }}
+                            // No explicit save here: `saveToDisk` closes over the
+                            // chart list from this render, so calling it after
+                            // the removal wrote the deleted chart straight back.
+                            // The autosave effect already runs on the new state.
+                            onClick={() => removeDashboardChart(chart.id)}
                             className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-all"
                             title="Delete Chart"
                           >
