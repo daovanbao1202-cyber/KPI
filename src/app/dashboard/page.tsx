@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { BarGraph, KPIDonutChart, GaugeChart, LineGraph, SingleKPI, StackedKpiGraph, MultipleKpiSeries, RagColumnGraph, MultiKpiPieChart, KPIList } from '@/components/dashboard/Charts';
-import { Target, TrendingDown, TrendingUp, Plus, LayoutDashboard, ChevronDown, List, Eye, Maximize2, Trash2, PieChart, Network, LineChart, BarChart, Target as GaugeIcon, BarChart2, Users, AlertCircle } from 'lucide-react';
+import { Target, TrendingDown, TrendingUp, Plus, LayoutDashboard, ChevronDown, List, Eye, Maximize2, Trash2, PieChart, Network, LineChart, BarChart, Target as GaugeIcon, BarChart2, Users, AlertCircle, Save, CheckCircle2 } from 'lucide-react';
 import { useKPI, DashboardChart } from '@/context/KPIContext';
 import ViewSelector from '@/components/dashboard/ViewSelector';
 import ChartSelector from '@/components/dashboard/ChartSelector';
@@ -14,8 +14,29 @@ import { findUnderperformingUsers } from '@/lib/alerts';
 export default function DashboardsPage() {
   const {
     visibleKpiDefs: kpiDefs, currentUser, viewLevel, viewFilter, users,
-    dashboardCharts, addDashboardChart, removeDashboardChart, userActuals, userTargets, saveToDisk
+    dashboardCharts, addDashboardChart, removeDashboardChart, reorderDashboardCharts,
+    chartsDirty, saveDashboardCharts, userActuals, userTargets
   } = useKPI();
+
+  const [isSavingCharts, setIsSavingCharts] = useState(false);
+  const [chartsSaved, setChartsSaved] = useState(false);
+  // Index of the card being dragged, so the drop target knows what to move.
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  const handleSaveCharts = async () => {
+    setIsSavingCharts(true);
+    await saveDashboardCharts();
+    setIsSavingCharts(false);
+    setChartsSaved(true);
+    setTimeout(() => setChartsSaved(false), 2500);
+  };
+
+  const handleDrop = (targetIndex: number) => {
+    if (draggingIndex !== null) reorderDashboardCharts(draggingIndex, targetIndex);
+    setDraggingIndex(null);
+    setDragOverIndex(null);
+  };
   
   const [isChartSelectorOpen, setIsChartSelectorOpen] = useState(false);
   const [selectedChartType, setSelectedChartType] = useState<string | null>(null);
@@ -163,8 +184,45 @@ export default function DashboardsPage() {
                ))}
             </div>
 
+            {/* Unsaved dashboard edits are confirmed here rather than autosaved,
+                so a background write can never undo a deletion. */}
+            {(chartsDirty || chartsSaved) && (
+              <div
+                className={`sticky top-2 z-20 mb-6 flex items-center justify-between gap-4 rounded-2xl px-6 py-4 shadow-lg border ${
+                  chartsSaved
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : 'bg-amber-50 border-amber-200 text-amber-900'
+                }`}
+              >
+                <div className="flex items-center gap-3 font-bold text-sm">
+                  {chartsSaved ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+                  <span>
+                    {chartsSaved
+                      ? 'Đã lưu bố cục dashboard.'
+                      : 'Bạn có thay đổi chưa lưu (xoá hoặc sắp xếp biểu đồ).'}
+                  </span>
+                </div>
+
+                {!chartsSaved && (
+                  <button
+                    onClick={handleSaveCharts}
+                    disabled={isSavingCharts}
+                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-brand-primary text-white font-bold text-sm shadow-md hover:opacity-90 transition-all disabled:opacity-60"
+                  >
+                    <Save size={16} />
+                    {isSavingCharts ? 'Đang lưu...' : 'Lưu thay đổi'}
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Main Chart Grid */}
             <div className="">
+              {dashboardCharts.length > 1 && (
+                <p className="mb-4 text-xs font-medium text-slate-400 dark:text-slate-500">
+                  Mẹo: kéo thả một biểu đồ để đổi vị trí, rồi bấm “Lưu thay đổi”.
+                </p>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 auto-rows-min">
                 
                 {dashboardCharts.map((chart, index) => {
@@ -172,10 +230,20 @@ export default function DashboardsPage() {
                   const isFullWidth = ['bar', 'column', 'line', 'multi-series', 'stacked', 'rag-column', 'kpiList'].includes(chart.type);
                   
                   return (
-                    <div 
-                      key={chart.id} 
-                      className={`${isFullWidth ? 'lg:col-span-2' : ''} glass-card rounded-[2.5rem] p-8 relative group interactive-hover border-white/50 animate-in fade-in slide-in-from-bottom-8 duration-500`}
-                      style={{ animationDelay: `${index * 100}ms` }}
+                    <div
+                      key={chart.id}
+                      draggable
+                      onDragStart={() => setDraggingIndex(index)}
+                      onDragEnd={() => { setDraggingIndex(null); setDragOverIndex(null); }}
+                      onDragOver={(e) => { e.preventDefault(); setDragOverIndex(index); }}
+                      onDrop={(e) => { e.preventDefault(); handleDrop(index); }}
+                      className={`${isFullWidth ? 'lg:col-span-2' : ''} glass-card rounded-[2.5rem] p-8 relative group interactive-hover border-white/50 cursor-grab active:cursor-grabbing transition-all ${
+                        draggingIndex === index ? 'opacity-40' : ''
+                      } ${
+                        dragOverIndex === index && draggingIndex !== index
+                          ? 'ring-4 ring-brand-primary/40'
+                          : ''
+                      }`}
                     >
                       <div className="flex justify-between items-start mb-6">
                         <div className="flex items-center gap-4">
@@ -195,11 +263,7 @@ export default function DashboardsPage() {
                            </div>
                         </div>
                         <div className="flex gap-2">
-                          <button 
-                            // No explicit save here: `saveToDisk` closes over the
-                            // chart list from this render, so calling it after
-                            // the removal wrote the deleted chart straight back.
-                            // The autosave effect already runs on the new state.
+                          <button
                             onClick={() => removeDashboardChart(chart.id)}
                             className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-all"
                             title="Delete Chart"

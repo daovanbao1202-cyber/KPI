@@ -144,13 +144,15 @@ const chartFromRow = (r: Row) => ({
   dateRange: r.date_range,
 });
 
-const chartToRow = (c: Row) => ({
+const chartToRow = (c: Row, index: number) => ({
   id: c.id,
   type: c.type,
   kpi_id: c.kpiId,
   kpi_ids: c.kpiIds,
   title: c.title,
   date_range: c.dateRange,
+  // Array order is the display order; without a column it is lost on reload.
+  position: index,
 });
 
 const reportFromRow = (r: Row) => ({
@@ -203,6 +205,23 @@ async function selectAll(table: string, columns = '*'): Promise<Row[]> {
   return data ?? [];
 }
 
+/** Like selectAll, but sorted — falling back if the sort column is absent. */
+async function selectAllOrdered(table: string, column: string): Promise<Row[]> {
+  const { data, error } = await queryWithFallback<Row[]>((client) =>
+    client.from(table).select('*').order(column, { ascending: true }) as unknown as PromiseLike<{
+      data: Row[] | null;
+      error: { message: string } | null;
+    }>
+  );
+
+  if (error) {
+    if (new RegExp(column, 'i').test(error.message)) return selectAll(table);
+    console.error(`Failed to read ${table}`, error);
+    return [];
+  }
+  return data ?? [];
+}
+
 export async function loadAll(): Promise<KPISnapshot | null> {
   if (!isOnline) return null;
 
@@ -212,7 +231,7 @@ export async function loadAll(): Promise<KPISnapshot | null> {
     selectAll('kpi_definitions'),
     selectAll('user_actuals'),
     selectAll('user_targets'),
-    selectAll('dashboard_charts'),
+    selectAllOrdered('dashboard_charts', 'position'),
     selectAll('kpi_reports'),
     selectAll('app_settings'),
   ]);
@@ -239,6 +258,49 @@ async function upsert(table: string, rows: Row[]): Promise<string | null> {
   if (error) {
     console.error(`Failed to write ${table}`, error);
     return `${table}: ${error.message}`;
+  }
+  return null;
+}
+
+/** Set once we learn dashboard_charts has no position column yet. */
+let positionColumnMissing = false;
+
+/**
+ * Writes the chart list and removes any row no longer in it, so what the user
+ * sees on the dashboard is exactly what the table holds.
+ */
+async function replaceCharts(charts: Row[]): Promise<string | null> {
+  const rows = charts.map((chart, index) => {
+    const row = chartToRow(chart, index) as Record<string, unknown>;
+    if (positionColumnMissing) delete row.position;
+    return row;
+  });
+
+  if (rows.length > 0) {
+    let failure = await upsert('dashboard_charts', rows);
+
+    // Older table without the ordering column: drop it and retry once.
+    if (failure && /position/i.test(failure) && !positionColumnMissing) {
+      positionColumnMissing = true;
+      console.warn('dashboard_charts.position is missing; chart order will not persist.');
+      failure = await upsert(
+        'dashboard_charts',
+        rows.map(({ position: _drop, ...rest }) => rest)
+      );
+    }
+    if (failure) return failure;
+  }
+
+  const keep = charts.map((chart) => String(chart.id));
+  const { error } = await queryWithFallback((client) => {
+    const query = client.from('dashboard_charts').delete();
+    // `not in ()` is invalid SQL, so an empty list means delete everything.
+    return keep.length > 0 ? query.not('id', 'in', `(${keep.map((id) => `"${id}"`).join(',')})`) : query.neq('id', '');
+  });
+
+  if (error) {
+    console.error('Failed to prune removed charts', error);
+    return `dashboard_charts: ${error.message}`;
   }
   return null;
 }
@@ -278,9 +340,11 @@ export async function saveAll(snapshot: Partial<KPISnapshot>): Promise<string[]>
   if (snapshot.userTargets) push(await upsert('user_targets', snapshot.userTargets.map(targetToRow)));
   if (snapshot.reports) push(await upsert('kpi_reports', snapshot.reports.map(reportToRow)));
 
-  // Read but never written until now, so saved dashboards vanished on reload.
+  // Charts use replace semantics, not upsert: the list the user sees is the
+  // whole truth. Upserting alone left deleted charts in the table, and they
+  // came back on the next load.
   if (snapshot.dashboardCharts) {
-    push(await upsert('dashboard_charts', snapshot.dashboardCharts.map(chartToRow)));
+    push(await replaceCharts(snapshot.dashboardCharts));
   }
 
   if (snapshot.customColumns || snapshot.hiddenCols) {

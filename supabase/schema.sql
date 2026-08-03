@@ -77,6 +77,10 @@ create table if not exists public.dashboard_charts (
   date_range jsonb
 );
 
+-- Display order on the dashboard, set by drag and drop.
+alter table public.dashboard_charts
+  add column if not exists position integer;
+
 -- -----------------------------------------------------------------------------
 -- 3. Notifications
 -- -----------------------------------------------------------------------------

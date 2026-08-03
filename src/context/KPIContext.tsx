@@ -158,7 +158,11 @@ interface KPIContextType {
   // Dashboards
   dashboardCharts: DashboardChart[];
   addDashboardChart: (chart: Omit<DashboardChart, 'id'>) => void;
-  removeDashboardChart: (id: string) => Promise<void>;
+  removeDashboardChart: (id: string) => void;
+  reorderDashboardCharts: (from: number, to: number) => void;
+  /** True when the dashboard has edits the user has not confirmed yet. */
+  chartsDirty: boolean;
+  saveDashboardCharts: () => Promise<void>;
 
   // Groups
   groups: Group[];
@@ -185,7 +189,7 @@ interface KPIContextType {
   isAuthResolved: boolean;
   /** Message describing why the last cloud save failed, if it did. */
   saveError: string | null;
-  saveToDisk: () => Promise<void>;
+  saveToDisk: (options?: { includeCharts?: boolean }) => Promise<void>;
   loadFromDisk: () => Promise<void>;
   importData: (data: any) => void;
   
@@ -287,6 +291,8 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
   const [isAuthResolved, setIsAuthResolved] = useState(false);
   /** Set when the last cloud save failed, so the UI can say so. */
   const [saveError, setSaveError] = useState<string | null>(null);
+  /** Dashboard edits are confirmed explicitly rather than autosaved. */
+  const [chartsDirty, setChartsDirty] = useState(false);
   const [customColumns, setCustomColumns] = useState<string[]>([]);
   const [hiddenCols, setHiddenCols] = useState<string[]>([]);
   const [isLoadingCloud, setIsLoadingCloud] = useState(false);
@@ -535,7 +541,7 @@ const saveLocalSnapshot = async (data: unknown) => {
     safeLocalStorageSet('mbo_hidden_cols_v1', JSON.stringify(hiddenCols));
   }, [hiddenCols, isHydrated]);
 
-  const saveToDisk = async () => {
+  const saveToDisk = async (options?: { includeCharts?: boolean }) => {
     try {
       const cleanKpiDefs = kpiDefs.filter(k => k.name && k.name.trim() !== "");
       const data = {
@@ -579,6 +585,9 @@ const saveLocalSnapshot = async (data: unknown) => {
       await saveLocalSnapshot(data);
 
       // 3. Save to the cloud through the server, and surface any failure.
+      // Charts are only included when the user confirms with Save: the server
+      // treats that list as authoritative and deletes anything missing from it,
+      // which would wipe the dashboard if an autosave ran before charts loaded.
       setSaveError(
         await saveToCloud({
           users,
@@ -586,9 +595,9 @@ const saveLocalSnapshot = async (data: unknown) => {
           userActuals,
           userTargets,
           reports,
-          dashboardCharts,
           customColumns,
           hiddenCols,
+          ...(options?.includeCharts ? { dashboardCharts } : {}),
         })
       );
     } catch (e) {
@@ -654,15 +663,17 @@ const saveLocalSnapshot = async (data: unknown) => {
     }
   };
 
-  // Auto-save to disk periodically or on hydration
+  // Auto-save, debounced. `dashboardCharts` is deliberately absent: dashboard
+  // edits are confirmed with the Save button, and an autosave firing in between
+  // would write back a chart the user had just removed.
   useEffect(() => {
     if (isHydrated && !isLoadingRef.current) {
       const timer = setTimeout(() => {
         saveToDisk();
-      }, 2000); // Debounce save to disk
+      }, 2000);
       return () => clearTimeout(timer);
     }
-  }, [kpiDefs, userActuals, userTargets, dashboardCharts, groups, groupItems, users, reports, userSettings, isHydrated]);
+  }, [kpiDefs, userActuals, userTargets, groups, groupItems, users, reports, userSettings, isHydrated]);
 
   useEffect(() => {
     // Also try to load from disk on start
@@ -848,17 +859,36 @@ const saveLocalSnapshot = async (data: unknown) => {
 
   const addDashboardChart = (chart: Omit<DashboardChart, 'id'>) => {
     const newId = `chart-${Date.now()}`;
-    setDashboardCharts([...dashboardCharts, { ...chart, id: newId }]);
+    setDashboardCharts(prev => [...prev, { ...chart, id: newId }]);
+    setChartsDirty(true);
+  };
+
+  /** Moves a chart within the list; order is persisted on save. */
+  const reorderDashboardCharts = (from: number, to: number) => {
+    if (from === to) return;
+    setDashboardCharts(prev => {
+      if (from < 0 || to < 0 || from >= prev.length || to >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+    setChartsDirty(true);
+  };
+
+  /** Commits chart additions, removals and ordering to the cloud. */
+  const saveDashboardCharts = async () => {
+    await saveToDisk({ includeCharts: true });
+    setChartsDirty(false);
   };
 
   /**
-   * Removes the chart from the cloud as well as from state. Without the second
-   * step the row survived in dashboard_charts and the chart reappeared on the
-   * next load, because syncing only ever upserts.
+   * Removes the chart from the visible list. It leaves the database when the
+   * user confirms with Save, which replaces the stored set wholesale.
    */
-  const removeDashboardChart = async (id: string) => {
+  const removeDashboardChart = (id: string) => {
     setDashboardCharts(prev => prev.filter(c => c.id !== id));
-    await deleteFromCloud('dashboard_charts', id);
+    setChartsDirty(true);
   };
 
   const addGroup = (name: string) => {
@@ -926,7 +956,8 @@ const saveLocalSnapshot = async (data: unknown) => {
       viewFilter, setViewFilter,
       userTargets, userActuals, addActual, updateUserActual, setTarget,
       currentUser, login, logout,
-      dashboardCharts, addDashboardChart, removeDashboardChart,
+      dashboardCharts, addDashboardChart, removeDashboardChart, reorderDashboardCharts,
+      chartsDirty, saveDashboardCharts,
       groups, groupItems, addGroup, updateGroup, deleteGroup, addGroupItem, updateGroupItem, deleteGroupItem,
       reports, addReport, updateReport, deleteReport,
       userSettings, updateUserSettings,
