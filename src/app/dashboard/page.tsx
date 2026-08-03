@@ -11,6 +11,16 @@ import ChartModal from '@/components/dashboard/ChartModal';
 
 import { findUnderperformingUsers } from '@/lib/alerts';
 
+/**
+ * Chart types this page can actually draw. Anything the selector offers but is
+ * missing here rendered an empty card, which read as "the chart has no data".
+ */
+const RENDERABLE_CHART_TYPES = [
+  'column', 'bar', 'rag-column', 'line', 'single', 'stacked', 'multi-series',
+  'pie', 'donut', 'multi-pie', 'gauge', 'gauge-mid', 'gauge-high',
+  'kpiList', 'report',
+];
+
 export default function DashboardsPage() {
   const {
     visibleKpiDefs: kpiDefs, currentUser, viewLevel, viewFilter, users,
@@ -253,9 +263,9 @@ export default function DashboardsPage() {
                               {chart.type === 'single' && <TrendingUp size={24} />}
                               {chart.type === 'stacked' && <BarChart size={24} />}
                               {chart.type === 'multi-series' && <Network size={24} />}
-                              {(chart.type === 'pie' || chart.type === 'multi-pie') && <PieChart size={24} />}
-                              {chart.type === 'gauge' && <GaugeIcon size={24} />}
-                              {chart.type === 'kpiList' && <List size={24} />}
+                              {(chart.type === 'pie' || chart.type === 'multi-pie' || chart.type === 'donut') && <PieChart size={24} />}
+                              {(chart.type === 'gauge' || chart.type === 'gauge-mid' || chart.type === 'gauge-high') && <GaugeIcon size={24} />}
+                              {(chart.type === 'kpiList' || chart.type === 'report') && <List size={24} />}
                            </div>
                            <div>
                               <div className="text-[10px] text-slate-400 dark:text-slate-500 font-bold mb-1 uppercase tracking-[0.2em]">{chart.dateRange.start} - {chart.dateRange.end}</div>
@@ -290,10 +300,20 @@ export default function DashboardsPage() {
                         {chart.type === 'single' && <SingleKPI kpiId={chart.kpiId} dateRange={chart.dateRange} />}
                         {chart.type === 'stacked' && <StackedKpiGraph kpiIds={chart.kpiIds} dateRange={chart.dateRange} />}
                         {chart.type === 'multi-series' && <MultipleKpiSeries kpiIds={chart.kpiIds} dateRange={chart.dateRange} />}
-                        {chart.type === 'pie' && <div className="w-full justify-center flex"><KPIDonutChart kpiId={chart.kpiId} dateRange={chart.dateRange} /></div>}
+                        {/* `donut` is the selector's "Pie Chart"; it shared no renderer before. */}
+                        {(chart.type === 'pie' || chart.type === 'donut') && <div className="w-full justify-center flex"><KPIDonutChart kpiId={chart.kpiId} dateRange={chart.dateRange} /></div>}
                         {chart.type === 'multi-pie' && <MultiKpiPieChart kpiIds={chart.kpiIds} dateRange={chart.dateRange} />}
-                        {chart.type === 'gauge' && <div className="w-full mt-4"><GaugeChart kpiId={chart.kpiId} dateRange={chart.dateRange} /></div>}
-                        {chart.type === 'kpiList' && <KPIList kpiIds={chart.kpiIds} dateRange={chart.dateRange} />}
+                        {/* Pointer and RAG gauges are variants of the same dial. */}
+                        {(chart.type === 'gauge' || chart.type === 'gauge-mid' || chart.type === 'gauge-high') && <div className="w-full mt-4"><GaugeChart kpiId={chart.kpiId} dateRange={chart.dateRange} /></div>}
+                        {/* `report` is the selector's "Table Card". */}
+                        {(chart.type === 'kpiList' || chart.type === 'report') && <KPIList kpiIds={chart.kpiIds} dateRange={chart.dateRange} />}
+
+                        {!RENDERABLE_CHART_TYPES.includes(chart.type) && (
+                          <div className="text-center text-slate-400 text-sm px-6">
+                            <AlertCircle size={24} className="mx-auto mb-2" />
+                            Loại biểu đồ &ldquo;{chart.type}&rdquo; chưa được hỗ trợ. Hãy xoá thẻ này và chọn loại khác.
+                          </div>
+                        )}
                       </div>
 
                       <div className="absolute bottom-6 left-8 opacity-40 hover:opacity-100 transition-opacity">

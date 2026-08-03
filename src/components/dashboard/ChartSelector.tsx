@@ -257,13 +257,8 @@ const CHART_TYPES = [
     description: 'Render actual values in a clean, structured tabular grid for quick reference.',
     icon: ChartIcons.report 
   },
-  { 
-    id: 'book', 
-    name: 'Report Booklet', 
-    title: 'Report Booklet', 
-    description: 'Browse a multi-page document compilation of MBO reports.',
-    icon: ChartIcons.book 
-  },
+  // 'book' (Report Booklet) was offered here but no renderer was ever written
+  // for it, so picking it produced an empty card. Removed until it exists.
   { 
     id: 'kpiList', 
     name: 'KPI List', 
