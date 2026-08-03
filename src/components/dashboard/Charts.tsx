@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { 
   ComposedChart, Area, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, AreaChart, BarChart, LineChart
+  PieChart, Pie, Cell, Legend, AreaChart, BarChart, LineChart, LabelList
 } from 'recharts';
 import { useKPI } from '@/context/KPIContext';
 
@@ -538,74 +538,143 @@ export function StackedKpiGraph({ kpiIds, dateRange }: { kpiIds?: string[], date
  * StackedKpiGraph draws the same data but with `stackId`, which piles the bars
  * on top of each other instead.
  */
+/** How many employee clusters to draw per period before the chart gets unreadable. */
+const MAX_CLUSTERS = 6;
+
+/**
+ * Clustered *and* stacked columns, the shape Excel calls a "clustered stacked
+ * combined column chart": within each period there is one column per employee,
+ * and each column is divided into one segment per KPI.
+ *
+ * Recharts builds this from one <Bar> per employee-KPI pair, sharing a stackId
+ * per employee so those segments pile up while different employees sit side by
+ * side.
+ */
 export function GroupedKpiColumns({ kpiIds, dateRange }: { kpiIds?: string[], dateRange?: { start: string, end: string } }) {
   const { userActuals, kpiDefs, users, viewLevel, viewFilter, reports } = useKPI();
   const ids = kpiIds || kpiDefs.slice(0, 3).map(k => k.id);
 
-  const relevantUserIds = users
-    .filter(u => {
-      if (viewLevel === 'Company') return true;
-      if (viewLevel === 'Department') return String(u.department) === String(viewFilter);
-      if (viewLevel === 'Individual') return String(u.id) === String(viewFilter);
-      return false;
-    })
-    .map(u => u.id);
+  const relevantUsers = users.filter(u => {
+    if (viewLevel === 'Company') return true;
+    if (viewLevel === 'Department') return String(u.department) === String(viewFilter);
+    if (viewLevel === 'Individual') return String(u.id) === String(viewFilter);
+    return false;
+  });
 
-  const dates = resolveDates(dateRange);
+  // One column per period, not per day. Using daily dates for monthly KPIs
+  // repeated the same value ~30 times and turned the chart into a stripe block.
+  const frequency = kpiDefs.find(k => k.id === ids[0])?.frequency;
+  const dates = resolveFrequencyDates(frequency, dateRange);
 
-  const data = dates.map(({ date, isToday }) => {
-    const dObj = new Date(date);
-    const row: Record<string, string | number> = {
-      name: isToday ? 'Today' : `${dObj.getDate()} ${monthNames[dObj.getMonth()]} ${dObj.getFullYear()}`,
-    };
+  const valueFor = (kId: string, uId: number, date: string) => {
+    const kpi = kpiDefs.find(k => k.id === kId);
+    const kpiKey = getKPIKeyForDate(date, kpi?.frequency);
+    const rCount = reports
+      ? reports.filter(r => r.kpiId === kId && r.userId === uId && r.dateKey === kpiKey && r.isDone).length
+      : 0;
+    if (rCount > 0) return rCount;
+    const m = userActuals.find(
+      a => a.kpiId === kId && a.userId === uId && (a.date === date || a.date === kpiKey)
+    );
+    return m ? m.actualValue : 0;
+  };
 
-    ids.forEach(kId => {
-      const kpi = kpiDefs.find(k => k.id === kId);
-      const kpiKey = getKPIKeyForDate(date, kpi?.frequency);
-      let actual = 0;
+  // Keep the busiest employees; an eleven-person company would otherwise
+  // produce thirty-plus bars per month.
+  const totalsByUser = relevantUsers.map(u => ({
+    user: u,
+    total: dates.reduce(
+      (sum, { date }) => sum + ids.reduce((s, kId) => s + valueFor(kId, u.id, date), 0),
+      0
+    ),
+  }));
 
-      relevantUserIds.forEach(uId => {
-        const rCount = reports
-          ? reports.filter(r => r.kpiId === kId && r.userId === uId && r.dateKey === kpiKey && r.isDone).length
-          : 0;
-        if (rCount > 0) {
-          actual += rCount;
-        } else {
-          const m = userActuals.find(
-            a => a.kpiId === kId && a.userId === uId && (a.date === date || a.date === kpiKey)
-          );
-          if (m) actual += m.actualValue;
-        }
+  const shown = totalsByUser
+    .filter(entry => entry.total > 0)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, MAX_CLUSTERS)
+    .map(entry => entry.user);
+
+  const clusters = shown.length > 0 ? shown : relevantUsers.slice(0, MAX_CLUSTERS);
+  const hiddenCount = Math.max(0, totalsByUser.filter(e => e.total > 0).length - clusters.length);
+
+  const key = (uId: number, kId: string) => `${uId}__${kId}`;
+
+  const data = dates.map(({ date, label }) => {
+    const row: Record<string, string | number> = { name: label };
+    clusters.forEach(u => {
+      let total = 0;
+      ids.forEach(kId => {
+        const value = valueFor(kId, u.id, date);
+        row[key(u.id, kId)] = value;
+        total += value;
       });
-
-      row[kId] = actual;
+      row[`${u.id}__total`] = total;
     });
-
     return row;
   });
 
+  if (clusters.length === 0) {
+    return (
+      <div className="h-[300px] flex items-center justify-center text-gray-400 text-sm">
+        Không có nhân viên nào trong phạm vi đang xem.
+      </div>
+    );
+  }
+
   return (
-    <div className="h-[300px] w-full pt-6">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} barGap={4}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-          <XAxis dataKey="name" axisLine={true} stroke="#cbd5e1" tickLine={true} tick={{ fill: '#64748b', fontSize: 11 }} dy={10} />
-          <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
-          <Tooltip cursor={{ fill: '#f8f9fa' }} />
-          <Legend verticalAlign="bottom" height={36} iconType="square" wrapperStyle={{ fontSize: '12px', paddingTop: '20px' }} />
-          {/* No stackId: Recharts places the bars beside one another. */}
-          {ids.map((id, idx) => (
-            <Bar
-              key={id}
-              name={kpiDefs.find(k => k.id === id)?.name || id}
-              dataKey={id}
-              fill={PIE_COLORS[idx % PIE_COLORS.length]}
-              maxBarSize={40}
-              radius={[4, 4, 0, 0]}
-            />
-          ))}
-        </BarChart>
-      </ResponsiveContainer>
+    <div className="w-full">
+      <div className="h-[320px] w-full pt-4">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} barGap={2} barCategoryGap="20%" margin={{ top: 24, right: 8, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+            <XAxis dataKey="name" axisLine stroke="#cbd5e1" tickLine tick={{ fill: '#64748b', fontSize: 11 }} dy={10} />
+            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
+            <Tooltip cursor={{ fill: '#f8f9fa' }} />
+            <Legend verticalAlign="bottom" height={36} iconType="square" wrapperStyle={{ fontSize: '12px', paddingTop: '16px' }} />
+
+            {clusters.map(u =>
+              ids.map((kId, kIdx) => {
+                const kpiName = kpiDefs.find(k => k.id === kId)?.name || kId;
+                const isTopSegment = kIdx === ids.length - 1;
+                return (
+                  <Bar
+                    key={key(u.id, kId)}
+                    dataKey={key(u.id, kId)}
+                    stackId={`u-${u.id}`}
+                    name={`${kpiName} · ${u.firstName}`}
+                    fill={PIE_COLORS[kIdx % PIE_COLORS.length]}
+                    maxBarSize={38}
+                    radius={isTopSegment ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                    // One legend entry per KPI, not one per employee-KPI pair.
+                    legendType={u.id === clusters[0].id ? 'square' : 'none'}
+                  >
+                    <LabelList
+                      dataKey={key(u.id, kId)}
+                      position="center"
+                      style={{ fill: '#0f172a', fontSize: 10, fontWeight: 600 }}
+                      formatter={(v: unknown) => (Number(v) > 0 ? String(v) : '')}
+                    />
+                    {isTopSegment && (
+                      <LabelList
+                        dataKey={`${u.id}__total`}
+                        position="top"
+                        style={{ fill: '#334155', fontSize: 11, fontWeight: 700 }}
+                        formatter={(v: unknown) => (Number(v) > 0 ? String(v) : '')}
+                      />
+                    )}
+                  </Bar>
+                );
+              })
+            )}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      <p className="mt-2 text-center text-[11px] text-slate-400">
+        Mỗi tháng có {clusters.length} cột, theo thứ tự: {clusters.map(u => u.firstName).join(' · ')}
+        {hiddenCount > 0 && ` (ẩn ${hiddenCount} người ít số liệu hơn)`}
+      </p>
     </div>
   );
 }
