@@ -586,6 +586,7 @@ const saveLocalSnapshot = async (data: unknown) => {
           userActuals,
           userTargets,
           reports,
+          dashboardCharts,
           customColumns,
           hiddenCols,
         })

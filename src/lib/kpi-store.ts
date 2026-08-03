@@ -139,6 +139,15 @@ const chartFromRow = (r: Row) => ({
   dateRange: r.date_range,
 });
 
+const chartToRow = (c: Row) => ({
+  id: c.id,
+  type: c.type,
+  kpi_id: c.kpiId,
+  kpi_ids: c.kpiIds,
+  title: c.title,
+  date_range: c.dateRange,
+});
+
 const reportFromRow = (r: Row) => ({
   id: r.id,
   kpiId: r.kpi_id,
@@ -263,6 +272,11 @@ export async function saveAll(snapshot: Partial<KPISnapshot>): Promise<string[]>
   if (snapshot.userActuals) push(await upsert('user_actuals', snapshot.userActuals.map(actualToRow)));
   if (snapshot.userTargets) push(await upsert('user_targets', snapshot.userTargets.map(targetToRow)));
   if (snapshot.reports) push(await upsert('kpi_reports', snapshot.reports.map(reportToRow)));
+
+  // Read but never written until now, so saved dashboards vanished on reload.
+  if (snapshot.dashboardCharts) {
+    push(await upsert('dashboard_charts', snapshot.dashboardCharts.map(chartToRow)));
+  }
 
   if (snapshot.customColumns || snapshot.hiddenCols) {
     push(

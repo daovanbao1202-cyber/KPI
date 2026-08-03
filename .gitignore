@@ -39,3 +39,4 @@ notifications.json
 
 # Du lieu khoi phuc mot lan, khong phai ma nguon
 recovery-reports.sql
+recovery-charts.sql
