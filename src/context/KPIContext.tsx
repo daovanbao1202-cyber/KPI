@@ -158,7 +158,7 @@ interface KPIContextType {
   // Dashboards
   dashboardCharts: DashboardChart[];
   addDashboardChart: (chart: Omit<DashboardChart, 'id'>) => void;
-  removeDashboardChart: (id: string) => void;
+  removeDashboardChart: (id: string) => Promise<void>;
 
   // Groups
   groups: Group[];
@@ -851,8 +851,14 @@ const saveLocalSnapshot = async (data: unknown) => {
     setDashboardCharts([...dashboardCharts, { ...chart, id: newId }]);
   };
 
-  const removeDashboardChart = (id: string) => {
-    setDashboardCharts(dashboardCharts.filter(c => c.id !== id));
+  /**
+   * Removes the chart from the cloud as well as from state. Without the second
+   * step the row survived in dashboard_charts and the chart reappeared on the
+   * next load, because syncing only ever upserts.
+   */
+  const removeDashboardChart = async (id: string) => {
+    setDashboardCharts(prev => prev.filter(c => c.id !== id));
+    await deleteFromCloud('dashboard_charts', id);
   };
 
   const addGroup = (name: string) => {

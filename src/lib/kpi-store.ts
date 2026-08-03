@@ -24,7 +24,12 @@ export interface KPISnapshot {
   hiddenCols: string[] | null;
 }
 
-export const DELETABLE_TABLES = ['users', 'kpi_definitions', 'kpi_reports'] as const;
+export const DELETABLE_TABLES = [
+  'users',
+  'kpi_definitions',
+  'kpi_reports',
+  'dashboard_charts',
+] as const;
 export type DeletableTable = (typeof DELETABLE_TABLES)[number];
 
 /** Set if the kpi_definitions table predates the sheet_type column. */
