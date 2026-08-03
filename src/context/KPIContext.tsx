@@ -183,6 +183,8 @@ interface KPIContextType {
   isHydrated: boolean;
   /** True once the server has been asked who the current user is. */
   isAuthResolved: boolean;
+  /** Message describing why the last cloud save failed, if it did. */
+  saveError: string | null;
   saveToDisk: () => Promise<void>;
   loadFromDisk: () => Promise<void>;
   importData: (data: any) => void;
@@ -283,6 +285,8 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
   const [isHydrated, setIsHydrated] = useState(false);
   /** True once the session cookie has been checked with the server. */
   const [isAuthResolved, setIsAuthResolved] = useState(false);
+  /** Set when the last cloud save failed, so the UI can say so. */
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [customColumns, setCustomColumns] = useState<string[]>([]);
   const [hiddenCols, setHiddenCols] = useState<string[]>([]);
   const [isLoadingCloud, setIsLoadingCloud] = useState(false);
@@ -365,19 +369,37 @@ const safeLocalStorageSet = (key: string, value: string) => {
  */
 let localSnapshotUnavailable = false;
 
-/** Persists the snapshot to Supabase via the server. */
-const saveToCloud = async (snapshot: unknown) => {
+/**
+ * Persists the snapshot to Supabase via the server.
+ *
+ * Returns a human-readable problem, or null on success. Reporting this matters:
+ * the previous version logged a console warning and carried on, so months of
+ * KPI reports were silently never written to the cloud.
+ */
+const saveToCloud = async (snapshot: unknown): Promise<string | null> => {
   try {
     const res = await fetch('/api/data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(snapshot),
     });
-    if (!res.ok && res.status !== 503) {
-      console.error('Cloud save failed', await res.json().catch(() => ({})));
+
+    // 503 means this environment has no cloud configured, which is expected.
+    if (res.status === 503) return null;
+
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      const detail = Array.isArray(payload.errors)
+        ? payload.errors.join('; ')
+        : payload.error || `HTTP ${res.status}`;
+      console.error('Cloud save failed', payload);
+      return detail;
     }
+
+    return null;
   } catch (e) {
     console.warn('Cloud save request failed', e);
+    return 'Không kết nối được tới máy chủ.';
   }
 };
 
@@ -556,16 +578,18 @@ const saveLocalSnapshot = async (data: unknown) => {
       // Unavailable on serverless hosts, where Supabase is the only store.
       await saveLocalSnapshot(data);
 
-      // 3. Save to the cloud through the server.
-      await saveToCloud({
-        users,
-        kpiDefs: cleanKpiDefs,
-        userActuals,
-        userTargets,
-        reports,
-        customColumns,
-        hiddenCols,
-      });
+      // 3. Save to the cloud through the server, and surface any failure.
+      setSaveError(
+        await saveToCloud({
+          users,
+          kpiDefs: cleanKpiDefs,
+          userActuals,
+          userTargets,
+          reports,
+          customColumns,
+          hiddenCols,
+        })
+      );
     } catch (e) {
       console.error('Failed to save data', e);
     }
@@ -899,7 +923,7 @@ const saveLocalSnapshot = async (data: unknown) => {
       groups, groupItems, addGroup, updateGroup, deleteGroup, addGroupItem, updateGroupItem, deleteGroupItem,
       reports, addReport, updateReport, deleteReport,
       userSettings, updateUserSettings,
-      isHydrated, isAuthResolved, saveToDisk, loadFromDisk, importData,
+      isHydrated, isAuthResolved, saveError, saveToDisk, loadFromDisk, importData,
       customColumns, setCustomColumns, hiddenCols, setHiddenCols, duplicateKpis, renameCustomColumn, isLoadingCloud
     }}>
       {children}

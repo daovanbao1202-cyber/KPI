@@ -36,3 +36,6 @@ next-env.d.ts
 data.json
 /src/data/data.json
 notifications.json
+
+# Du lieu khoi phuc mot lan, khong phai ma nguon
+recovery-reports.sql

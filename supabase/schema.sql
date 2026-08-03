@@ -39,6 +39,45 @@ create table if not exists public.app_settings (
 );
 
 -- -----------------------------------------------------------------------------
+-- 2b. KPI reports
+-- -----------------------------------------------------------------------------
+-- The Data page derives each Actual from the number of completed reports, so
+-- this table holds real measurements, not just attachments. It was missing for
+-- a long time while the client swallowed the resulting write errors, which is
+-- why Actual columns read 0 even though reports existed locally.
+create table if not exists public.kpi_reports (
+  id text primary key,
+  kpi_id text,
+  user_id bigint,
+  date_key text,
+  month text,
+  customer text,
+  type text,
+  report_name text,
+  pic_id bigint,
+  url text,
+  status text,
+  date text,
+  note text,
+  is_done boolean not null default false
+);
+
+create index if not exists kpi_reports_lookup_idx
+  on public.kpi_reports (kpi_id, user_id, date_key);
+
+-- -----------------------------------------------------------------------------
+-- 2c. Saved dashboard charts
+-- -----------------------------------------------------------------------------
+create table if not exists public.dashboard_charts (
+  id text primary key,
+  type text,
+  kpi_id text,
+  kpi_ids jsonb,
+  title text,
+  date_range jsonb
+);
+
+-- -----------------------------------------------------------------------------
 -- 3. Notifications
 -- -----------------------------------------------------------------------------
 create table if not exists public.notifications (
