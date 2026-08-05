@@ -297,6 +297,15 @@ export function KPIProvider({ children }: { children: React.ReactNode }) {
   const [hiddenCols, setHiddenCols] = useState<string[]>([]);
   const [isLoadingCloud, setIsLoadingCloud] = useState(false);
   const isLoadingRef = React.useRef(false);
+  /**
+   * True only once a load has actually populated state from the server.
+   *
+   * The browser hydrates from localStorage first, so before this flips the
+   * state holds whatever the *previous* person on this browser left behind.
+   * Autosave stays parked until then: saving early wrote one user's cached
+   * snapshot over everyone else's data.
+   */
+  const [isCloudLoaded, setIsCloudLoaded] = useState(false);
 
   useEffect(() => {
     const safeParse = (key: string, fallback: any) => {
@@ -368,6 +377,39 @@ const safeLocalStorageSet = (key: string, value: string) => {
     console.warn(`LocalStorage write failed or quota exceeded for key "${key}":`, e);
   }
 };
+
+/**
+ * Shown when the initial load fails. Autosave is parked in that state, so the
+ * user has to be told plainly — silently accepting edits that go nowhere is how
+ * months of KPI reports were lost before.
+ */
+const LOAD_FAILED_MESSAGE =
+  'Không tải được dữ liệu từ máy chủ. Mọi thay đổi sẽ KHÔNG được lưu cho tới khi tải lại trang thành công.';
+
+/**
+ * Everything localStorage holds on behalf of the signed-in person: company data
+ * cached for fast hydration, plus their own view preferences.
+ *
+ * All of it is wiped on sign-out. Left in place, the next person to use this
+ * browser saw the previous person's figures for the second or two before the
+ * server answered — and if that request failed, kept them and saved them back.
+ */
+const CACHED_DATA_KEYS = [
+  'kpi_defs_v4',
+  'user_actuals_v4',
+  'user_targets_v4',
+  'dashboard_charts_v1',
+  'kpi_groups_v1',
+  'kpi_group_items_v1',
+  'kpi_users_v1',
+  'kpi_reports_v1',
+  'kpi_user_settings_v1',
+  'mbo_custom_cols_v1',
+  'mbo_hidden_cols_v1',
+  'kpi_view_level',
+  'kpi_view_filter',
+  'kpi_current_user',
+];
 
 /**
  * Writes the local JSON snapshot. On a read-only (serverless) filesystem the
@@ -575,10 +617,9 @@ const saveLocalSnapshot = async (data: unknown) => {
       safeSave('kpi_users_v1', users);
       safeSave('kpi_reports_v1', reports);
       safeSave('kpi_user_settings_v1', userSettings);
-      
-      if (currentUser) {
-        safeSave('kpi_current_user', currentUser);
-      }
+      // Identity is deliberately not cached: the signed session cookie is the
+      // only authority on who is signed in, and a copy here was once enough to
+      // impersonate an Admin.
 
       // 2. Save the full snapshot to the local file system (no 5MB limit there).
       // Unavailable on serverless hosts, where Supabase is the only store.
@@ -609,6 +650,9 @@ const saveLocalSnapshot = async (data: unknown) => {
   const loadFromDisk = async () => {
     if (isLoadingRef.current) return;
     isLoadingRef.current = true;
+    // Park autosave for the duration: until this load lands, state still holds
+    // the locally cached snapshot rather than the company's real data.
+    setIsCloudLoaded(false);
     setIsLoadingCloud(true);
     try {
       // 1. Cloud first, through the server. The browser no longer holds a
@@ -631,6 +675,8 @@ const saveLocalSnapshot = async (data: unknown) => {
         // Supabase is the source of truth. Previously the local file was read
         // afterwards and overwrote everything that had just arrived from the
         // cloud, so whichever browser last wrote data.json silently won.
+        setIsCloudLoaded(true);
+        setSaveError(null);
         return;
       }
 
@@ -657,9 +703,14 @@ const saveLocalSnapshot = async (data: unknown) => {
         if (data.customColumns) setCustomColumns(data.customColumns);
         if (data.hiddenCols) setHiddenCols(data.hiddenCols);
         console.log('Local data and settings merged');
+        setIsCloudLoaded(true);
+        setSaveError(null);
+      } else {
+        setSaveError(LOAD_FAILED_MESSAGE);
       }
     } catch (e) {
       console.warn('Failed to load data', e);
+      setSaveError(LOAD_FAILED_MESSAGE);
     } finally {
       isLoadingRef.current = false;
       setIsLoadingCloud(false);
@@ -670,18 +721,29 @@ const saveLocalSnapshot = async (data: unknown) => {
   // edits are confirmed with the Save button, and an autosave firing in between
   // would write back a chart the user had just removed.
   useEffect(() => {
-    if (isHydrated && !isLoadingRef.current) {
-      const timer = setTimeout(() => {
-        saveToDisk();
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [kpiDefs, userActuals, userTargets, groups, groupItems, users, reports, userSettings, isHydrated]);
+    // `isCloudLoaded` gates this: the locally cached snapshot must never be
+    // written back before the server has said what the real data is.
+    if (!isHydrated || !isCloudLoaded) return;
+    const timer = setTimeout(() => {
+      // Re-checked here rather than only when the effect is scheduled: a load
+      // starting inside the debounce window would otherwise still save the
+      // pre-load snapshot, because a ref change does not re-run the effect.
+      if (isLoadingRef.current) return;
+      saveToDisk();
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [kpiDefs, userActuals, userTargets, groups, groupItems, users, reports, userSettings, isHydrated, isCloudLoaded]);
 
+  // Load once the session is known, and again whenever the signed-in person
+  // changes. Signing in is a client-side navigation, so this provider never
+  // remounts — a mount-only load ran while still on the login page, was
+  // rejected as unauthenticated, and left the app running on the previous
+  // user's cached snapshot, which autosave then wrote back to the cloud.
+  const signedInUserId = currentUser?.id ?? null;
   useEffect(() => {
-    // Also try to load from disk on start
+    if (!isAuthResolved || signedInUserId === null) return;
     loadFromDisk();
-  }, []);
+  }, [isAuthResolved, signedInUserId]);
 
   const addUser = (user: Omit<User, 'id'>) => {
     const newId = users.length > 0 ? Math.max(...users.map(u => u.id)) + 1 : 1;
@@ -864,8 +926,11 @@ const saveLocalSnapshot = async (data: unknown) => {
       // Clearing local state below still signs the user out of this browser.
     }
     setCurrentUser(null);
+    // Park autosave again: the next sign-in reloads from the server, and
+    // nothing may be written back in the meantime.
+    setIsCloudLoaded(false);
     try {
-      localStorage.removeItem('kpi_current_user');
+      for (const key of CACHED_DATA_KEYS) localStorage.removeItem(key);
     } catch {}
   };
 
