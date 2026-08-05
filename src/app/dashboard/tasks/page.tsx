@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import {
   AlertCircle, CalendarDays, CalendarRange, CheckCircle2, Inbox, LayoutGrid, List, ListChecks,
@@ -62,8 +62,6 @@ export default function TasksPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [draft, setDraft] = useState(emptyDraft);
   const [isSaving, setIsSaving] = useState(false);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dragOverColumn, setDragOverColumn] = useState<TaskStatus | null>(null);
   const [scope, setScope] = useState<'mine' | 'all'>('mine');
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all' | 'overdue'>('all');
   const [unreadCount, setUnreadCount] = useState(0);
@@ -240,19 +238,19 @@ export default function TasksPage() {
     );
   };
 
-  const handleDropInColumn = (status: TaskStatus, droppedId?: string) => {
-    const task = tasks.find(t => t.id === (droppedId ?? draggingId));
-    setDraggingId(null);
-    setDragOverColumn(null);
-    if (!task || task.status === status) return;
-
-    if (!mayUpdate(task)) {
-      setError('Bạn chỉ cập nhật được công việc được giao cho mình.');
-      return;
-    }
-    // Reaching "done" by dragging should also complete the progress bar.
-    patchTask(task.id, { status, ...(status === 'done' ? { progress: 100 } : {}) });
-  };
+  /** Called when a card is dropped on a different column. */
+  const moveTask = useCallback(
+    (task: Task, status: TaskStatus) => {
+      if (!mayUpdate(task)) {
+        setError('Bạn chỉ cập nhật được công việc được giao cho mình.');
+        return;
+      }
+      // Reaching "done" by dragging should also complete the progress bar.
+      patchTask(task.id, { status, ...(status === 'done' ? { progress: 100 } : {}) });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tasks, canManage, currentUser]
+  );
 
   const isOverdue = (task: Task) =>
     !!task.dueDate && task.status !== 'done' && task.dueDate < new Date().toISOString().slice(0, 10);
@@ -365,11 +363,7 @@ export default function TasksPage() {
             tasks={visibleTasks}
             userName={userName}
             isOverdue={isOverdue}
-            draggingId={draggingId}
-            dragOverColumn={dragOverColumn}
-            onDragStart={setDraggingId}
-            onDragOverColumn={setDragOverColumn}
-            onDrop={handleDropInColumn}
+            onMove={moveTask}
           />
         )}
       </div>
@@ -779,85 +773,147 @@ function TaskTable({
   );
 }
 
+/**
+ * Kanban board with pointer-based dragging.
+ *
+ * The HTML5 drag-and-drop API was tried first and kept failing: it aborts when
+ * React re-renders the dragged node, does nothing at all on touch screens, and
+ * gives no way to tell why a drop was ignored. Pointer events behave the same
+ * everywhere, so the card follows the cursor and the drop target is decided by
+ * hit-testing whatever is under it.
+ */
 function TaskBoard({
-  tasks, userName, isOverdue, draggingId, dragOverColumn, onDragStart, onDragOverColumn, onDrop,
+  tasks, userName, isOverdue, onMove,
 }: {
   tasks: Task[];
   userName: (id: number | null) => string;
   isOverdue: (task: Task) => boolean;
-  draggingId: string | null;
-  dragOverColumn: TaskStatus | null;
-  onDragStart: (id: string) => void;
-  onDragOverColumn: (status: TaskStatus | null) => void;
-  onDrop: (status: TaskStatus, droppedId?: string) => void;
+  onMove: (task: Task, status: TaskStatus) => void;
 }) {
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-      {COLUMNS.map(column => {
-        const columnTasks = tasks.filter(t => t.status === column.id);
-        return (
-          <div
-            key={column.id}
-            onDragOver={e => {
-              e.preventDefault();
-              e.dataTransfer.dropEffect = 'move';
-              // Only on change: dragover fires ~60 times a second, and setting
-              // state each time re-renders the card being dragged, which the
-              // browser treats as the element vanishing and cancels the drag.
-              if (dragOverColumn !== column.id) onDragOverColumn(column.id);
-            }}
-            onDragLeave={e => {
-              // Ignore moves onto a child; only a real exit clears the highlight.
-              if (!e.currentTarget.contains(e.relatedTarget as Node)) onDragOverColumn(null);
-            }}
-            onDrop={e => {
-              e.preventDefault();
-              onDrop(column.id, e.dataTransfer.getData('text/plain') || undefined);
-            }}
-            className={`rounded-2xl border p-3 min-h-[240px] transition-colors ${
-              dragOverColumn === column.id
-                ? 'border-brand-primary bg-brand-primary/5'
-                : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900'
-            }`}
-          >
-            <div className="flex items-center gap-2 px-2 pb-3">
-              <span className={`w-2 h-2 rounded-full ${column.accent}`} />
-              <h3 className="font-black text-sm text-slate-700 dark:text-slate-200">{column.label}</h3>
-              <span className="ml-auto text-xs font-bold text-slate-400">{columnTasks.length}</span>
-            </div>
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [hoverColumn, setHoverColumn] = useState<TaskStatus | null>(null);
+  const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null);
 
-            <div className="space-y-2">
-              {columnTasks.map(task => (
-                <div
-                  key={task.id}
-                  draggable
-                  onDragStart={e => {
-                    // Carry the id on the event itself. Some browsers refuse to
-                    // start a drag without payload, and reading it back on drop
-                    // is more reliable than trusting state to have settled.
-                    e.dataTransfer.setData('text/plain', task.id);
-                    e.dataTransfer.effectAllowed = 'move';
-                    onDragStart(task.id);
-                  }}
-                  className={`rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/50 p-3 cursor-grab active:cursor-grabbing ${
-                    draggingId === task.id ? 'opacity-40' : ''
-                  }`}
-                >
-                  <div className="font-bold text-sm text-slate-800 dark:text-white mb-1">{task.title}</div>
-                  <div className="text-[11px] text-slate-500 mb-2">{userName(task.assigneeId)}</div>
-                  {task.dueDate && (
-                    <div className={`text-[11px] font-medium mb-2 ${isOverdue(task) ? 'text-red-600 font-bold' : 'text-slate-400'}`}>
-                      Hạn: {task.dueDate}
-                    </div>
-                  )}
-                  <ProgressBar value={task.progress} />
-                </div>
-              ))}
+  // Read inside the window listeners, which would otherwise close over stale state.
+  const liveDrag = useRef<{ id: string; hover: TaskStatus | null }>(null);
+
+  useEffect(() => {
+    if (!dragId) return;
+
+    const columnAt = (x: number, y: number): TaskStatus | null => {
+      const element = document.elementFromPoint(x, y) as HTMLElement | null;
+      const column = element?.closest('[data-column]');
+      return (column?.getAttribute('data-column') as TaskStatus) ?? null;
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      event.preventDefault();
+      setGhost({ x: event.clientX, y: event.clientY });
+
+      const column = columnAt(event.clientX, event.clientY);
+      if (liveDrag.current) liveDrag.current.hover = column;
+      setHoverColumn(column);
+    };
+
+    const finish = () => {
+      const state = liveDrag.current;
+      liveDrag.current = null;
+      setDragId(null);
+      setHoverColumn(null);
+      setGhost(null);
+
+      if (!state?.hover) return;
+      const task = tasks.find(t => t.id === state.id);
+      if (task && task.status !== state.hover) onMove(task, state.hover);
+    };
+
+    window.addEventListener('pointermove', onPointerMove, { passive: false });
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+    };
+  }, [dragId, tasks, onMove]);
+
+  const startDrag = (task: Task, event: React.PointerEvent) => {
+    if (event.button !== 0 && event.pointerType === 'mouse') return;
+    liveDrag.current = { id: task.id, hover: null };
+    setDragId(task.id);
+    setGhost({ x: event.clientX, y: event.clientY });
+  };
+
+  const draggedTask = dragId ? tasks.find(t => t.id === dragId) : null;
+
+  return (
+    <>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        {COLUMNS.map(column => {
+          const columnTasks = tasks.filter(t => t.status === column.id);
+          const isTarget = hoverColumn === column.id && draggedTask?.status !== column.id;
+
+          return (
+            <div
+              key={column.id}
+              data-column={column.id}
+              className={`rounded-2xl border p-3 min-h-[240px] transition-colors ${
+                isTarget
+                  ? 'border-brand-primary bg-brand-primary/5'
+                  : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900'
+              }`}
+            >
+              <div className="flex items-center gap-2 px-2 pb-3">
+                <span className={`w-2 h-2 rounded-full ${column.accent}`} />
+                <h3 className="font-black text-sm text-slate-700 dark:text-slate-200">{column.label}</h3>
+                <span className="ml-auto text-xs font-bold text-slate-400">{columnTasks.length}</span>
+              </div>
+
+              <div className="space-y-2">
+                {columnTasks.map(task => (
+                  <div
+                    key={task.id}
+                    onPointerDown={event => startDrag(task, event)}
+                    // Without this a touch drag scrolls the page instead.
+                    style={{ touchAction: 'none' }}
+                    className={`select-none rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/50 p-3 cursor-grab active:cursor-grabbing ${
+                      dragId === task.id ? 'opacity-30' : ''
+                    }`}
+                  >
+                    <div className="font-bold text-sm text-slate-800 dark:text-white mb-1">{task.title}</div>
+                    <div className="text-[11px] text-slate-500 mb-2">{userName(task.assigneeId)}</div>
+                    {task.dueDate && (
+                      <div className={`text-[11px] font-medium mb-2 ${isOverdue(task) ? 'text-red-600 font-bold' : 'text-slate-400'}`}>
+                        Hạn: {task.dueDate}
+                      </div>
+                    )}
+                    <ProgressBar value={task.progress} />
+                  </div>
+                ))}
+
+                {columnTasks.length === 0 && (
+                  <div className="py-8 text-center text-[11px] text-slate-300 dark:text-slate-600">
+                    Thả công việc vào đây
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+
+      {/* The card follows the cursor, so it is obvious the drag has begun. */}
+      {draggedTask && ghost && (
+        <div
+          className="pointer-events-none fixed z-50 w-56 rounded-xl border border-brand-primary bg-white dark:bg-slate-800 p-3 shadow-2xl opacity-95"
+          style={{ left: ghost.x + 12, top: ghost.y + 12 }}
+        >
+          <div className="font-bold text-sm text-slate-800 dark:text-white mb-1">{draggedTask.title}</div>
+          <div className="text-[11px] text-slate-500">{userName(draggedTask.assigneeId)}</div>
+        </div>
+      )}
+    </>
   );
 }
 
