@@ -101,6 +101,30 @@ create index if not exists kpi_group_items_group_idx
   on public.kpi_group_items (group_id);
 
 -- -----------------------------------------------------------------------------
+-- 2e. Task assignments
+-- -----------------------------------------------------------------------------
+-- `kpi_id` deliberately carries no foreign key. Deleting a KPI should not fail
+-- or cascade into someone's task list; the UI shows "KPI đã xoá" instead.
+create table if not exists public.tasks (
+  id text primary key,
+  title text not null,
+  description text,
+  assignee_id bigint,
+  kpi_id text,
+  status text not null default 'todo',
+  priority text not null default 'medium',
+  start_date text,
+  due_date text,
+  progress integer not null default 0,
+  created_by bigint,
+  created_at timestamptz not null default now(),
+  position integer
+);
+
+create index if not exists tasks_assignee_idx on public.tasks (assignee_id);
+create index if not exists tasks_status_idx on public.tasks (status);
+
+-- -----------------------------------------------------------------------------
 -- 3. Notifications
 -- -----------------------------------------------------------------------------
 create table if not exists public.notifications (

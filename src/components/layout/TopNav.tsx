@@ -7,7 +7,7 @@ import {
   Target, Database, LayoutDashboard, FileText, 
   Activity, Users, Settings, UserCircle, 
   HelpCircle, Network, LogOut, ChevronDown,
-  LayoutGrid, Share2, Menu, X, RefreshCw, Rocket
+  LayoutGrid, Share2, Menu, X, RefreshCw, Rocket, ClipboardList
 } from 'lucide-react';
 import { useKPI } from '@/context/KPIContext';
 import NotificationBell from './NotificationBell';
@@ -23,6 +23,7 @@ const mainNav = [
   { name: 'Analytics', href: '/dashboard/analytics', icon: Activity, roles: ['Admin', 'Manager', 'User'] },
   { name: 'MBO', href: '/dashboard/mbo', icon: LayoutGrid, roles: ['Admin', 'Manager', 'User'] },
   { name: 'ACTION/PLAN', href: '/dashboard/action-plan', icon: Rocket, roles: ['Admin', 'Manager', 'User'] },
+  { name: 'Giao việc', href: '/dashboard/tasks', icon: ClipboardList, roles: ['Admin', 'Manager', 'User'] },
   { name: 'Users', href: '/dashboard/users', icon: Users, roles: ['Admin'] },
   { name: 'Org Chart', href: '/dashboard/org-chart', icon: Network, roles: ['Admin', 'Manager', 'User'] },
 ];
