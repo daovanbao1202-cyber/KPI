@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { AlertTriangle } from 'lucide-react';
 import { useKPI } from '@/context/KPIContext';
 import TopNav from './TopNav';
+import MobileTabBar from './MobileTabBar';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { currentUser, isHydrated, isAuthResolved, saveError } = useKPI();
@@ -64,7 +65,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className={fullBleed ? 'min-h-full' : 'max-w-[1600px] mx-auto min-h-full'}>
           {children}
         </div>
+        {/* Clears the bottom tab bar, which is fixed and would otherwise cover
+            the last rows of any list. */}
+        <div className="h-16 lg:hidden" aria-hidden />
       </main>
+
+      <MobileTabBar />
     </div>
   );
 }

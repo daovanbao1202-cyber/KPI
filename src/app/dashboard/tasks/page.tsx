@@ -677,8 +677,86 @@ function TaskTable({
   onRemove: (id: string) => void;
 }) {
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-x-auto">
-      <table className="w-full text-sm min-w-[900px]">
+    <>
+      {/* Phones get cards. The table needs 900px, so on a phone it became a
+          sideways scroll with most columns permanently off screen. */}
+      <div className="md:hidden space-y-3">
+        {tasks.map(task => {
+          const editable = mayUpdate(task);
+          const priority = PRIORITIES.find(p => p.id === task.priority) ?? PRIORITIES[1];
+          const column = COLUMNS.find(c => c.id === task.status) ?? COLUMNS[0];
+
+          return (
+            <div
+              key={task.id}
+              className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4"
+            >
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div className="min-w-0">
+                  <div className="font-bold text-slate-800 dark:text-white leading-snug">{task.title}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">{userName(task.assigneeId)}</div>
+                </div>
+                {canManage && (
+                  <button
+                    onClick={() => onRemove(task.id)}
+                    className="shrink-0 -mt-1 -mr-1 p-2 text-slate-300 active:text-red-500"
+                    aria-label="Xoá công việc"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-500">
+                  <span className={`w-2 h-2 rounded-full ${column.accent}`} />
+                  {column.label}
+                </span>
+                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${priority.className}`}>
+                  {priority.label}
+                </span>
+                {task.dueDate && (
+                  <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${isOverdue(task) ? 'text-red-600 font-bold' : 'text-slate-400'}`}>
+                    <CalendarDays size={12} /> {task.dueDate}
+                  </span>
+                )}
+                {kpiName(task.kpiId) && (
+                  <span className="text-[11px] text-slate-400">· {kpiName(task.kpiId)}</span>
+                )}
+              </div>
+
+              <ProgressBar value={task.progress} />
+
+              {editable && (
+                <div className="mt-3 flex gap-2">
+                  <select
+                    value={task.status}
+                    onChange={e => onPatch(task.id, { status: e.target.value as TaskStatus })}
+                    className="flex-1 h-11 text-sm font-bold border border-slate-200 dark:border-slate-700 rounded-xl px-3 bg-white dark:bg-slate-800"
+                  >
+                    {COLUMNS.map(c => (
+                      <option key={c.id} value={c.id}>{c.label}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={task.progress}
+                    onChange={e => onPatch(task.id, { progress: Number(e.target.value) })}
+                    className="flex-1"
+                    aria-label="Tiến độ"
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="hidden md:block bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-x-auto">
+        <table className="w-full text-sm min-w-[900px]">
         <thead>
           <tr className="border-b border-slate-100 dark:border-slate-800 text-[11px] uppercase tracking-wider text-slate-400">
             <th className="text-left font-bold px-5 py-3">Công việc</th>
@@ -768,8 +846,9 @@ function TaskTable({
             );
           })}
         </tbody>
-      </table>
-    </div>
+        </table>
+      </div>
+    </>
   );
 }
 
