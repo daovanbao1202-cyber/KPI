@@ -242,7 +242,7 @@ export default function TasksPage() {
     !!task.dueDate && task.status !== 'done' && task.dueDate < new Date().toISOString().slice(0, 10);
 
   return (
-    <div className="flex h-full bg-slate-50 dark:bg-slate-950">
+    <div className="flex min-h-full bg-slate-50 dark:bg-slate-950">
       <TaskSidebar
         currentUser={currentUser}
         scope={scope}
@@ -399,7 +399,7 @@ function TaskSidebar({
   ];
 
   return (
-    <aside className="hidden lg:flex w-64 shrink-0 flex-col bg-[#141c2b] text-slate-300 overflow-y-auto">
+    <aside className="hidden lg:flex w-64 shrink-0 flex-col bg-[#141c2b] text-slate-300">
       {/* Who you are */}
       <div className="flex items-center gap-3 px-5 py-5 border-b border-white/5">
         {currentUser?.avatar ? (

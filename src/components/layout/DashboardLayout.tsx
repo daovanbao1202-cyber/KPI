@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { AlertTriangle } from 'lucide-react';
 import { useKPI } from '@/context/KPIContext';
 import TopNav from './TopNav';
@@ -9,6 +9,10 @@ import TopNav from './TopNav';
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { currentUser, isHydrated, isAuthResolved, saveError } = useKPI();
   const router = useRouter();
+  const pathname = usePathname();
+
+  /** Routes that draw their own full-height sidebar. */
+  const fullBleed = pathname?.startsWith('/dashboard/tasks') ?? false;
 
   // Readiness is derived, not stored, so no extra render is triggered.
   const isReady = isHydrated && isAuthResolved && !!currentUser;
@@ -54,7 +58,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       )}
 
       <main className="flex-1 overflow-y-auto scroll-smooth">
-        <div className="max-w-[1600px] mx-auto min-h-full">
+        {/* Pages with their own left rail run edge to edge; the shared
+            max-width would otherwise centre them and leave the rail floating
+            in from the side on a wide screen. */}
+        <div className={fullBleed ? 'min-h-full' : 'max-w-[1600px] mx-auto min-h-full'}>
           {children}
         </div>
       </main>
