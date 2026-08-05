@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
-  AlertCircle, CalendarDays, CheckCircle2, LayoutGrid, List, Plus, Trash2, X,
+  AlertCircle, CalendarDays, CheckCircle2, Inbox, LayoutGrid, List, ListChecks, Plus, Trash2, X,
 } from 'lucide-react';
 import { useKPI } from '@/context/KPIContext';
 
@@ -61,7 +62,9 @@ export default function TasksPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<TaskStatus | null>(null);
-  const [onlyMine, setOnlyMine] = useState(false);
+  const [scope, setScope] = useState<'mine' | 'all'>('mine');
+  const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all' | 'overdue'>('all');
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const canManage = currentUser?.role === 'Admin' || currentUser?.role === 'Manager';
 
@@ -87,10 +90,48 @@ export default function TasksPage() {
     load();
   }, [load]);
 
-  const visibleTasks = useMemo(
-    () => (onlyMine ? tasks.filter(t => t.assigneeId === currentUser?.id) : tasks),
-    [tasks, onlyMine, currentUser]
+  // Unread count for the Inbox row in the sidebar.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/notifications');
+        if (!res.ok) return;
+        const items = await res.json();
+        setUnreadCount(Array.isArray(items) ? items.filter((n: { is_read?: boolean }) => !n.is_read).length : 0);
+      } catch {
+        // The sidebar simply shows no badge if this fails.
+      }
+    })();
+  }, []);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const overdue = (t: Task) => !!t.dueDate && t.status !== 'done' && t.dueDate < today;
+
+  const scopedTasks = useMemo(
+    () => (scope === 'mine' ? tasks.filter(t => t.assigneeId === currentUser?.id) : tasks),
+    [tasks, scope, currentUser]
   );
+
+  const visibleTasks = useMemo(() => {
+    if (statusFilter === 'all') return scopedTasks;
+    if (statusFilter === 'overdue') return scopedTasks.filter(overdue);
+    return scopedTasks.filter(t => t.status === statusFilter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopedTasks, statusFilter, today]);
+
+  const counts = useMemo(() => ({
+    all: scopedTasks.length,
+    todo: scopedTasks.filter(t => t.status === 'todo').length,
+    doing: scopedTasks.filter(t => t.status === 'doing').length,
+    review: scopedTasks.filter(t => t.status === 'review').length,
+    done: scopedTasks.filter(t => t.status === 'done').length,
+    overdue: scopedTasks.filter(overdue).length,
+    // Average completion across the scope, which is what "tiến độ" means here.
+    progress: scopedTasks.length
+      ? Math.round(scopedTasks.reduce((sum, t) => sum + t.progress, 0) / scopedTasks.length)
+      : 0,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [scopedTasks, today]);
 
   const userName = (id: number | null) => {
     const user = users.find(u => u.id === id);
@@ -201,7 +242,19 @@ export default function TasksPage() {
     !!task.dueDate && task.status !== 'done' && task.dueDate < new Date().toISOString().slice(0, 10);
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 pb-16">
+    <div className="flex h-full bg-slate-50 dark:bg-slate-950">
+      <TaskSidebar
+        currentUser={currentUser}
+        scope={scope}
+        setScope={setScope}
+        statusFilter={statusFilter}
+        setStatusFilter={setStatusFilter}
+        counts={counts}
+        unreadCount={unreadCount}
+        canManage={canManage}
+      />
+
+      <div className="flex-1 overflow-y-auto pb-16 min-w-0">
       <div className="px-8 pt-8">
         <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
           <div>
@@ -219,16 +272,6 @@ export default function TasksPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-300">
-              <input
-                type="checkbox"
-                checked={onlyMine}
-                onChange={e => setOnlyMine(e.target.checked)}
-                className="w-4 h-4 rounded border-slate-300"
-              />
-              Chỉ việc của tôi
-            </label>
-
             <div className="flex bg-white dark:bg-slate-900 rounded-xl p-1 border border-slate-200 dark:border-slate-700">
               <button
                 onClick={() => setView('table')}
@@ -301,6 +344,7 @@ export default function TasksPage() {
           />
         )}
       </div>
+      </div>
 
       {isFormOpen && (
         <TaskForm
@@ -317,6 +361,156 @@ export default function TasksPage() {
         />
       )}
     </div>
+  );
+}
+
+interface SidebarCounts {
+  all: number;
+  todo: number;
+  doing: number;
+  review: number;
+  done: number;
+  overdue: number;
+  progress: number;
+}
+
+/**
+ * Left rail modelled on Wrike's: who you are, what is waiting for you, and how
+ * far along the work is. Each row is a filter rather than decoration.
+ */
+function TaskSidebar({
+  currentUser, scope, setScope, statusFilter, setStatusFilter, counts, unreadCount, canManage,
+}: {
+  currentUser: { firstName: string; lastName: string; role: string; avatar?: string } | null;
+  scope: 'mine' | 'all';
+  setScope: (next: 'mine' | 'all') => void;
+  statusFilter: TaskStatus | 'all' | 'overdue';
+  setStatusFilter: (next: TaskStatus | 'all' | 'overdue') => void;
+  counts: SidebarCounts;
+  unreadCount: number;
+  canManage: boolean;
+}) {
+  const rows: { id: TaskStatus | 'all' | 'overdue'; label: string; count: number; dot?: string }[] = [
+    { id: 'all', label: 'Tất cả', count: counts.all },
+    { id: 'todo', label: 'Chưa bắt đầu', count: counts.todo, dot: 'bg-slate-400' },
+    { id: 'doing', label: 'Đang làm', count: counts.doing, dot: 'bg-blue-500' },
+    { id: 'review', label: 'Chờ duyệt', count: counts.review, dot: 'bg-amber-500' },
+    { id: 'done', label: 'Hoàn thành', count: counts.done, dot: 'bg-emerald-500' },
+  ];
+
+  return (
+    <aside className="hidden lg:flex w-64 shrink-0 flex-col bg-[#141c2b] text-slate-300 overflow-y-auto">
+      {/* Who you are */}
+      <div className="flex items-center gap-3 px-5 py-5 border-b border-white/5">
+        {currentUser?.avatar ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={currentUser.avatar} alt="" className="w-10 h-10 rounded-full object-cover" />
+        ) : (
+          <div className="w-10 h-10 rounded-full bg-brand-primary flex items-center justify-center text-white font-black">
+            {currentUser?.firstName?.charAt(0) ?? '?'}
+          </div>
+        )}
+        <div className="min-w-0">
+          <div className="font-bold text-white text-sm truncate">
+            {currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : 'Khách'}
+          </div>
+          <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+            {currentUser?.role ?? ''}
+          </div>
+        </div>
+      </div>
+
+      {/* Inbox */}
+      <div className="px-3 py-3 border-b border-white/5">
+        <Link
+          href="/dashboard"
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium hover:bg-white/5 transition-colors"
+        >
+          <Inbox size={16} />
+          <span>Hộp thư</span>
+          {unreadCount > 0 && (
+            <span className="ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center">
+              {unreadCount}
+            </span>
+          )}
+        </Link>
+      </div>
+
+      {/* Scope: only managers have anyone else to look at */}
+      {canManage && (
+        <div className="px-3 pt-4 pb-2">
+          <div className="flex bg-white/5 rounded-lg p-1">
+            {(['mine', 'all'] as const).map(option => (
+              <button
+                key={option}
+                onClick={() => setScope(option)}
+                className={`flex-1 py-1.5 rounded-md text-xs font-bold transition-colors ${
+                  scope === option ? 'bg-brand-primary text-white' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {option === 'mine' ? 'Của tôi' : 'Cả nhóm'}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Task counts, each one a filter */}
+      <div className="px-3 py-3">
+        <div className="px-3 pb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+          {scope === 'mine' ? 'Việc của tôi' : 'Việc cả nhóm'}
+        </div>
+
+        {rows.map(row => (
+          <button
+            key={row.id}
+            onClick={() => setStatusFilter(row.id)}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+              statusFilter === row.id ? 'bg-white/10 text-white font-bold' : 'hover:bg-white/5'
+            }`}
+          >
+            {row.dot ? <span className={`w-2 h-2 rounded-full ${row.dot}`} /> : <ListChecks size={15} />}
+            <span className="truncate">{row.label}</span>
+            <span className="ml-auto text-xs font-bold text-slate-400">{row.count}</span>
+          </button>
+        ))}
+
+        {counts.overdue > 0 && (
+          <button
+            onClick={() => setStatusFilter('overdue')}
+            className={`w-full flex items-center gap-3 px-3 py-2 mt-1 rounded-lg text-sm transition-colors ${
+              statusFilter === 'overdue' ? 'bg-red-500/20 text-red-300 font-bold' : 'text-red-400 hover:bg-red-500/10'
+            }`}
+          >
+            <AlertCircle size={15} />
+            <span>Quá hạn</span>
+            <span className="ml-auto text-xs font-bold">{counts.overdue}</span>
+          </button>
+        )}
+      </div>
+
+      {/* Progress card, in the spot Wrike puts Quick start */}
+      <div className="mt-auto p-4">
+        <div className="rounded-xl bg-white/5 border border-white/10 p-4">
+          <div className="text-xs font-black text-white mb-1">Tiến độ chung</div>
+          <p className="text-[11px] text-slate-400 mb-3">
+            {counts.done}/{counts.all} việc đã hoàn thành
+          </p>
+
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  counts.progress >= 100 ? 'bg-emerald-500' : 'bg-brand-primary'
+                }`}
+                style={{ width: `${counts.progress}%` }}
+              />
+            </div>
+            <span className="text-xs font-black text-white">{counts.progress}%</span>
+          </div>
+        </div>
+      </div>
+    </aside>
   );
 }
 
