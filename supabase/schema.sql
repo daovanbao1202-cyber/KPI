@@ -82,6 +82,25 @@ alter table public.dashboard_charts
   add column if not exists position integer;
 
 -- -----------------------------------------------------------------------------
+-- 2d. Groups used to categorise users
+-- -----------------------------------------------------------------------------
+-- These were never synced at all: groups existed only in whichever browser
+-- created them, so they vanished on another machine.
+create table if not exists public.kpi_groups (
+  id text primary key,
+  name text not null
+);
+
+create table if not exists public.kpi_group_items (
+  id text primary key,
+  group_id text not null,
+  name text not null
+);
+
+create index if not exists kpi_group_items_group_idx
+  on public.kpi_group_items (group_id);
+
+-- -----------------------------------------------------------------------------
 -- 3. Notifications
 -- -----------------------------------------------------------------------------
 create table if not exists public.notifications (

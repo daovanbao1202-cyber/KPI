@@ -21,7 +21,9 @@ export default function KPIsPage() {
   
   const handleManualSave = async () => {
     setIsSaving(true);
-    await saveToDisk();
+    // Danh sach KPI dang hien thi la chuan duy nhat, nen server se xoa
+    // nhung KPI khong con trong do thay vi chi them/cap nhat.
+    await saveToDisk({ authoritative: ['kpiDefs'] });
     setIsSaving(false);
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 3000);

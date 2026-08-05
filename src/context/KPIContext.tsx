@@ -189,7 +189,7 @@ interface KPIContextType {
   isAuthResolved: boolean;
   /** Message describing why the last cloud save failed, if it did. */
   saveError: string | null;
-  saveToDisk: (options?: { includeCharts?: boolean }) => Promise<void>;
+  saveToDisk: (options?: { includeCharts?: boolean; authoritative?: string[] }) => Promise<void>;
   loadFromDisk: () => Promise<void>;
   importData: (data: any) => void;
   
@@ -541,7 +541,7 @@ const saveLocalSnapshot = async (data: unknown) => {
     safeLocalStorageSet('mbo_hidden_cols_v1', JSON.stringify(hiddenCols));
   }, [hiddenCols, isHydrated]);
 
-  const saveToDisk = async (options?: { includeCharts?: boolean }) => {
+  const saveToDisk = async (options?: { includeCharts?: boolean; authoritative?: string[] }) => {
     try {
       const cleanKpiDefs = kpiDefs.filter(k => k.name && k.name.trim() !== "");
       const data = {
@@ -598,6 +598,7 @@ const saveLocalSnapshot = async (data: unknown) => {
           customColumns,
           hiddenCols,
           ...(options?.includeCharts ? { dashboardCharts } : {}),
+          authoritative: options?.authoritative ?? (options?.includeCharts ? ['dashboardCharts'] : []),
         })
       );
     } catch (e) {
@@ -622,6 +623,8 @@ const saveLocalSnapshot = async (data: unknown) => {
         if (data.userTargets) setUserTargets(data.userTargets);
         if (data.dashboardCharts) setDashboardCharts(data.dashboardCharts);
         if (data.reports?.length) setReports(data.reports);
+        if (data.groups) setGroups(data.groups);
+        if (data.groupItems) setGroupItems(data.groupItems);
         if (data.customColumns) setCustomColumns(data.customColumns);
         if (data.hiddenCols) setHiddenCols(data.hiddenCols);
 

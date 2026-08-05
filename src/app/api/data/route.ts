@@ -34,8 +34,8 @@ export async function POST(request: Request) {
   if (error) return error;
 
   try {
-    const snapshot = await request.json();
-    const failures = await saveAll(snapshot);
+    const { authoritative, ...snapshot } = await request.json();
+    const failures = await saveAll(snapshot, Array.isArray(authoritative) ? authoritative : []);
 
     if (failures.length > 0) {
       return NextResponse.json({ success: false, errors: failures }, { status: 500 });

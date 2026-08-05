@@ -20,6 +20,8 @@ export interface KPISnapshot {
   userTargets: Row[];
   dashboardCharts: Row[];
   reports: Row[];
+  groups: Row[];
+  groupItems: Row[];
   customColumns: string[] | null;
   hiddenCols: string[] | null;
 }
@@ -225,7 +227,7 @@ async function selectAllOrdered(table: string, column: string): Promise<Row[]> {
 export async function loadAll(): Promise<KPISnapshot | null> {
   if (!isOnline) return null;
 
-  const [users, kpis, actuals, targets, charts, reports, settings] = await Promise.all([
+  const [users, kpis, actuals, targets, charts, reports, settings, groups, groupItems] = await Promise.all([
     // Explicit columns: password_hash must never leave the server.
     selectAll('users', 'id, first_name, last_name, email, role, department, position, avatar'),
     selectAll('kpi_definitions'),
@@ -234,6 +236,8 @@ export async function loadAll(): Promise<KPISnapshot | null> {
     selectAllOrdered('dashboard_charts', 'position'),
     selectAll('kpi_reports'),
     selectAll('app_settings'),
+    selectAll('kpi_groups'),
+    selectAll('kpi_group_items'),
   ]);
 
   const global = settings.find((s) => s.id === 'global_mbo_settings');
@@ -245,6 +249,8 @@ export async function loadAll(): Promise<KPISnapshot | null> {
     userTargets: targets.map(targetFromRow),
     dashboardCharts: charts.map(chartFromRow),
     reports: reports.map(reportFromRow),
+    groups: groups.map((g) => ({ id: g.id, name: g.name })),
+    groupItems: groupItems.map((g) => ({ id: g.id, groupId: g.group_id, name: g.name })),
     customColumns: (global?.custom_columns as string[]) ?? null,
     hiddenCols: (global?.hidden_cols as string[]) ?? null,
   };
@@ -264,6 +270,47 @@ async function upsert(table: string, rows: Row[]): Promise<string | null> {
 
 /** Set once we learn dashboard_charts has no position column yet. */
 let positionColumnMissing = false;
+
+/**
+ * Deletes every row of `table` whose id is not in `keep`.
+ *
+ * Saving only ever upserted, so anything the user removed lived on in the
+ * database and returned on the next load. Callers pass the complete list they
+ * are showing, and this makes the table match it.
+ */
+async function pruneMissing(table: string, keep: string[]): Promise<string | null> {
+  const { error } = await queryWithFallback((client) => {
+    const query = client.from(table).delete();
+    // `not in ()` is invalid SQL, so an empty list means delete everything.
+    return keep.length > 0
+      ? query.not('id', 'in', `(${keep.map((id) => `"${id}"`).join(',')})`)
+      : query.neq('id', '');
+  });
+
+  if (error) {
+    console.error(`Failed to prune removed rows from ${table}`, error);
+    return `${table}: ${error.message}`;
+  }
+  return null;
+}
+
+/** Deletes rows of `table` whose kpi_id no longer exists. */
+async function pruneOrphansByKpi(table: string, keepKpiIds: string[]): Promise<string | null> {
+  if (keepKpiIds.length === 0) return null;
+
+  const { error } = await queryWithFallback((client) =>
+    client
+      .from(table)
+      .delete()
+      .not('kpi_id', 'in', `(${keepKpiIds.map((id) => `"${id}"`).join(',')})`)
+  );
+
+  if (error) {
+    console.error(`Failed to prune orphans from ${table}`, error);
+    return `${table}: ${error.message}`;
+  }
+  return null;
+}
 
 /**
  * Writes the chart list and removes any row no longer in it, so what the user
@@ -291,22 +338,20 @@ async function replaceCharts(charts: Row[]): Promise<string | null> {
     if (failure) return failure;
   }
 
-  const keep = charts.map((chart) => String(chart.id));
-  const { error } = await queryWithFallback((client) => {
-    const query = client.from('dashboard_charts').delete();
-    // `not in ()` is invalid SQL, so an empty list means delete everything.
-    return keep.length > 0 ? query.not('id', 'in', `(${keep.map((id) => `"${id}"`).join(',')})`) : query.neq('id', '');
-  });
-
-  if (error) {
-    console.error('Failed to prune removed charts', error);
-    return `dashboard_charts: ${error.message}`;
-  }
-  return null;
+  return pruneMissing('dashboard_charts', charts.map((chart) => String(chart.id)));
 }
 
-/** Returns a list of per-table error messages; empty means everything saved. */
-export async function saveAll(snapshot: Partial<KPISnapshot>): Promise<string[]> {
+/**
+ * Returns a list of per-table error messages; empty means everything saved.
+ *
+ * `authoritative` names the collections whose submitted list is the complete
+ * truth, so rows missing from it are deleted. Only explicit user saves set it —
+ * a background save firing before data had loaded would otherwise empty tables.
+ */
+export async function saveAll(
+  snapshot: Partial<KPISnapshot>,
+  authoritative: string[] = []
+): Promise<string[]> {
   if (!isOnline) return ['Supabase chưa được cấu hình.'];
 
   const errors: string[] = [];
@@ -317,9 +362,8 @@ export async function saveAll(snapshot: Partial<KPISnapshot>): Promise<string[]>
   if (snapshot.users) push(await upsert('users', snapshot.users.map(userToRow)));
 
   if (snapshot.kpiDefs) {
-    const rows = snapshot.kpiDefs
-      .filter((k) => String(k.name ?? '').trim() !== '')
-      .map(kpiToRow);
+    const kept = snapshot.kpiDefs.filter((k) => String(k.name ?? '').trim() !== '');
+    const rows = kept.map(kpiToRow);
 
     if (sheetTypeColumnMissing) {
       push(await upsert('kpi_definitions', rows.map(({ sheet_type: _drop, ...rest }) => rest)));
@@ -334,11 +378,46 @@ export async function saveAll(snapshot: Partial<KPISnapshot>): Promise<string[]>
         push(failure);
       }
     }
+
+    if (authoritative.includes('kpiDefs')) {
+      const keep = kept.map((k) => String(k.id));
+
+      // Refuse to empty the table. An empty list here is far more likely to be
+      // a client that has not finished loading than a deliberate wipe.
+      if (keep.length === 0) {
+        console.warn('Refusing to delete every KPI: the submitted list was empty.');
+      } else {
+        push(await pruneMissing('kpi_definitions', keep));
+        // Measurements belonging to a deleted KPI would linger forever.
+        push(await pruneOrphansByKpi('user_targets', keep));
+        push(await pruneOrphansByKpi('user_actuals', keep));
+        push(await pruneOrphansByKpi('kpi_reports', keep));
+      }
+    }
   }
 
   if (snapshot.userActuals) push(await upsert('user_actuals', snapshot.userActuals.map(actualToRow)));
   if (snapshot.userTargets) push(await upsert('user_targets', snapshot.userTargets.map(targetToRow)));
   if (snapshot.reports) push(await upsert('kpi_reports', snapshot.reports.map(reportToRow)));
+
+  if (snapshot.groups) {
+    push(await upsert('kpi_groups', snapshot.groups.map((g) => ({ id: g.id, name: g.name }))));
+    if (authoritative.includes('groups')) {
+      push(await pruneMissing('kpi_groups', snapshot.groups.map((g) => String(g.id))));
+    }
+  }
+
+  if (snapshot.groupItems) {
+    push(
+      await upsert(
+        'kpi_group_items',
+        snapshot.groupItems.map((g) => ({ id: g.id, group_id: g.groupId, name: g.name }))
+      )
+    );
+    if (authoritative.includes('groups')) {
+      push(await pruneMissing('kpi_group_items', snapshot.groupItems.map((g) => String(g.id))));
+    }
+  }
 
   // Charts use replace semantics, not upsert: the list the user sees is the
   // whole truth. Upserting alone left deleted charts in the table, and they
