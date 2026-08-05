@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireSession } from '@/lib/auth-server';
 import { isOnline, supabase } from '@/lib/supabase';
-import { hasServiceRole, supabaseAdmin } from '@/lib/supabase-admin';
+import { hasServiceRole, queryWithFallback, supabaseAdmin } from '@/lib/supabase-admin';
 
 export const runtime = 'nodejs';
 
@@ -25,6 +25,36 @@ async function probe(client: typeof supabase): Promise<{ ok: boolean; error?: st
   }
 }
 
+const COUNTED_TABLES = [
+  'users',
+  'kpi_definitions',
+  'user_actuals',
+  'user_targets',
+  'kpi_reports',
+  'dashboard_charts',
+  'kpi_groups',
+  'kpi_group_items',
+];
+
+/** Row counts straight from the database, to compare against what the UI shows. */
+async function rowCounts(): Promise<Record<string, number | string>> {
+  const entries = await Promise.all(
+    COUNTED_TABLES.map(async (table) => {
+      const { count, error } = await queryWithFallback<null>((client) =>
+        client.from(table).select('*', { count: 'exact', head: true }) as unknown as PromiseLike<{
+          data: null;
+          error: { message: string } | null;
+          count: number | null;
+        }>
+      ).then((result) => result as { error: { message: string } | null; count?: number | null });
+
+      return [table, error ? `LỖI: ${error.message}` : (count ?? 0)] as const;
+    })
+  );
+
+  return Object.fromEntries(entries);
+}
+
 export async function GET() {
   const { error } = await requireSession('Admin');
   if (error) return error;
@@ -44,6 +74,13 @@ export async function GET() {
   const readyForRls = hasServiceRole && serviceRole.ok;
 
   return NextResponse.json({
+    // Which build is actually serving. Testing against a stale deployment has
+    // repeatedly looked like a bug that was already fixed.
+    build: {
+      commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'local',
+      branch: process.env.VERCEL_GIT_COMMIT_REF ?? 'local',
+    },
+    soDongTrongDatabase: await rowCounts(),
     supabaseConfigured: true,
     serviceRoleKeyPresent: hasServiceRole,
     serviceRoleWorks: serviceRole.ok,
