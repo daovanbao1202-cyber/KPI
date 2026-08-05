@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import {
   AlertCircle, CalendarDays, CheckCircle2, Inbox, LayoutGrid, List, ListChecks, Plus, Trash2, X,
@@ -224,6 +224,20 @@ export default function TasksPage() {
     }
   };
 
+  /** Ticking the checklist completes a task, or sends it back to "đang làm". */
+  const toggleDone = (task: Task) => {
+    if (!mayUpdate(task)) {
+      setError('Bạn chỉ cập nhật được công việc được giao cho mình.');
+      return;
+    }
+    patchTask(
+      task.id,
+      task.status === 'done'
+        ? { status: 'doing', progress: task.progress >= 100 ? 50 : task.progress }
+        : { status: 'done', progress: 100 }
+    );
+  };
+
   const handleDropInColumn = (status: TaskStatus) => {
     const task = tasks.find(t => t.id === draggingId);
     setDraggingId(null);
@@ -252,6 +266,9 @@ export default function TasksPage() {
         counts={counts}
         unreadCount={unreadCount}
         canManage={canManage}
+        tasks={scopedTasks}
+        mayUpdate={mayUpdate}
+        onToggle={toggleDone}
       />
 
       <div className="flex-1 overflow-y-auto pb-16 min-w-0">
@@ -380,6 +397,7 @@ interface SidebarCounts {
  */
 function TaskSidebar({
   currentUser, scope, setScope, statusFilter, setStatusFilter, counts, unreadCount, canManage,
+  tasks, mayUpdate, onToggle,
 }: {
   currentUser: { firstName: string; lastName: string; role: string; avatar?: string } | null;
   scope: 'mine' | 'all';
@@ -389,6 +407,9 @@ function TaskSidebar({
   counts: SidebarCounts;
   unreadCount: number;
   canManage: boolean;
+  tasks: Task[];
+  mayUpdate: (task: Task) => boolean;
+  onToggle: (task: Task) => void;
 }) {
   const rows: { id: TaskStatus | 'all' | 'overdue'; label: string; count: number; dot?: string }[] = [
     { id: 'all', label: 'Tất cả', count: counts.all },
@@ -490,7 +511,7 @@ function TaskSidebar({
       </div>
 
       {/* Progress card, in the spot Wrike puts Quick start */}
-      <div className="mt-auto p-4">
+      <div className="mt-auto p-4 space-y-3">
         <div className="rounded-xl bg-white/5 border border-white/10 p-4">
           <div className="text-xs font-black text-white mb-1">Tiến độ chung</div>
           <p className="text-[11px] text-slate-400 mb-3">
@@ -509,8 +530,117 @@ function TaskSidebar({
             <span className="text-xs font-black text-white">{counts.progress}%</span>
           </div>
         </div>
+
+        <TaskChecklist tasks={tasks} mayUpdate={mayUpdate} onToggle={onToggle} />
       </div>
     </aside>
+  );
+}
+
+const CHECKLIST_HIDDEN_KEY = 'tasks_checklist_hidden';
+const checklistListeners = new Set<() => void>();
+let checklistHidden: boolean | null = null;
+
+function readChecklistHidden(): boolean {
+  if (checklistHidden === null) {
+    try {
+      checklistHidden = localStorage.getItem(CHECKLIST_HIDDEN_KEY) === '1';
+    } catch {
+      checklistHidden = false; // Private browsing: just show the card.
+    }
+  }
+  return checklistHidden;
+}
+
+function subscribeChecklistHidden(listener: () => void) {
+  checklistListeners.add(listener);
+  return () => checklistListeners.delete(listener);
+}
+
+function hideChecklist() {
+  checklistHidden = true;
+  try {
+    localStorage.setItem(CHECKLIST_HIDDEN_KEY, '1');
+  } catch {}
+  checklistListeners.forEach((listener) => listener());
+}
+
+/**
+ * Checklist of the tasks in scope, ticked when complete — the shape of Wrike's
+ * Quick start card, but listing real work rather than onboarding steps.
+ *
+ * Ticking a box completes the task, so the card is a way to work, not just a
+ * summary. Dismissable, and the choice is remembered.
+ */
+function TaskChecklist({
+  tasks, mayUpdate, onToggle,
+}: {
+  tasks: Task[];
+  mayUpdate: (task: Task) => boolean;
+  onToggle: (task: Task) => void;
+}) {
+  // Read through useSyncExternalStore rather than an effect: localStorage is an
+  // external store, and the server render must start from "visible" to avoid a
+  // hydration mismatch.
+  const dismissed = useSyncExternalStore(
+    subscribeChecklistHidden,
+    readChecklistHidden,
+    () => false
+  );
+
+  if (dismissed || tasks.length === 0) return null;
+
+  // Unfinished work first: that is what the card is for.
+  const ordered = [...tasks].sort((a, b) => Number(a.status === 'done') - Number(b.status === 'done'));
+
+  return (
+    <div className="rounded-xl bg-white/5 border border-white/10 p-4">
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="text-xs font-black text-emerald-400">Danh sách công việc</div>
+        <button
+          onClick={hideChecklist}
+          aria-label="Ẩn danh sách"
+          className="text-slate-500 hover:text-white -mt-1 -mr-1 p-1"
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
+        {ordered.map(task => {
+          const done = task.status === 'done';
+          const editable = mayUpdate(task);
+
+          return (
+            <button
+              key={task.id}
+              onClick={() => editable && onToggle(task)}
+              disabled={!editable}
+              title={editable ? (done ? 'Bỏ đánh dấu hoàn thành' : 'Đánh dấu hoàn thành') : 'Không phải việc của bạn'}
+              className={`w-full flex items-start gap-2.5 text-left group ${
+                editable ? 'cursor-pointer' : 'cursor-default'
+              }`}
+            >
+              {done ? (
+                <CheckCircle2 size={16} className="shrink-0 mt-0.5 text-emerald-500" />
+              ) : (
+                <span className="shrink-0 mt-1 w-3.5 h-3.5 rounded-full border border-dashed border-slate-500 group-hover:border-slate-300" />
+              )}
+
+              <span
+                className={`text-[12px] leading-snug border-b border-dashed pb-0.5 ${
+                  done
+                    ? 'text-slate-400 line-through border-transparent'
+                    : 'text-slate-200 border-slate-600 group-hover:border-slate-400'
+                }`}
+              >
+                {task.title}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
