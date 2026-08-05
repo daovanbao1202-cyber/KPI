@@ -185,6 +185,9 @@ export default function TaskCalendar({
   const iconFor = (kpiId: string | null) =>
     legend.find((entry) => entry.id === (kpiId ?? NO_KPI))?.icon ?? '🎯';
 
+  const kpiNameFor = (kpiId: string | null) =>
+    legend.find((entry) => entry.id === (kpiId ?? NO_KPI))?.name ?? '';
+
   const visible = useMemo(
     () =>
       tasks.filter(
@@ -411,9 +414,11 @@ export default function TaskCalendar({
                       return (
                         <div
                           key={`${segment.task.id}-${weekIndex}`}
-                          title={`${segment.task.title} — ${userName(segment.task.assigneeId)} · ${
-                            STATUS_LABEL[segment.task.status]
-                          }${segment.task.dueDate ? ` (hạn ${segment.task.dueDate})` : ''}`}
+                          title={`${kpiNameFor(segment.task.kpiId)} — ${segment.task.title}\n${userName(
+                            segment.task.assigneeId
+                          )} · ${STATUS_LABEL[segment.task.status]}${
+                            segment.task.dueDate ? ` · hạn ${segment.task.dueDate}` : ''
+                          }`}
                           className={`absolute flex items-center gap-1 truncate text-[11px] font-bold px-2 border ${
                             color.bar
                           } ${done ? 'opacity-60' : ''} ${
@@ -426,14 +431,25 @@ export default function TaskCalendar({
                             height: BAR_HEIGHT,
                           }}
                         >
-                          {!segment.continuesLeft && (
-                            <span className="shrink-0 leading-none">{iconFor(segment.task.kpiId)}</span>
+                          {segment.continuesLeft ? (
+                            <span className="shrink-0 opacity-60">‹</span>
+                          ) : (
+                            <>
+                              <span className="shrink-0 leading-none">{iconFor(segment.task.kpiId)}</span>
+                              {/* KPI name first, then the task. Lighter weight so
+                                  the task title still reads as the subject. */}
+                              <span className="shrink-0 max-w-[45%] truncate font-semibold opacity-75">
+                                {kpiNameFor(segment.task.kpiId)}
+                              </span>
+                              <span className="shrink-0 opacity-40">·</span>
+                            </>
                           )}
+
                           <span className={`truncate ${done ? 'line-through' : ''}`}>
-                            {segment.continuesLeft ? '‹ ' : ''}
                             {segment.task.title}
-                            {segment.continuesRight ? ' ›' : ''}
                           </span>
+
+                          {segment.continuesRight && <span className="shrink-0 opacity-60">›</span>}
                         </div>
                       );
                     })}
