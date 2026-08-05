@@ -240,8 +240,8 @@ export default function TasksPage() {
     );
   };
 
-  const handleDropInColumn = (status: TaskStatus) => {
-    const task = tasks.find(t => t.id === draggingId);
+  const handleDropInColumn = (status: TaskStatus, droppedId?: string) => {
+    const task = tasks.find(t => t.id === (droppedId ?? draggingId));
     setDraggingId(null);
     setDragOverColumn(null);
     if (!task || task.status === status) return;
@@ -789,7 +789,7 @@ function TaskBoard({
   dragOverColumn: TaskStatus | null;
   onDragStart: (id: string) => void;
   onDragOverColumn: (status: TaskStatus | null) => void;
-  onDrop: (status: TaskStatus) => void;
+  onDrop: (status: TaskStatus, droppedId?: string) => void;
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -798,9 +798,22 @@ function TaskBoard({
         return (
           <div
             key={column.id}
-            onDragOver={e => { e.preventDefault(); onDragOverColumn(column.id); }}
-            onDragLeave={() => onDragOverColumn(null)}
-            onDrop={e => { e.preventDefault(); onDrop(column.id); }}
+            onDragOver={e => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              // Only on change: dragover fires ~60 times a second, and setting
+              // state each time re-renders the card being dragged, which the
+              // browser treats as the element vanishing and cancels the drag.
+              if (dragOverColumn !== column.id) onDragOverColumn(column.id);
+            }}
+            onDragLeave={e => {
+              // Ignore moves onto a child; only a real exit clears the highlight.
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) onDragOverColumn(null);
+            }}
+            onDrop={e => {
+              e.preventDefault();
+              onDrop(column.id, e.dataTransfer.getData('text/plain') || undefined);
+            }}
             className={`rounded-2xl border p-3 min-h-[240px] transition-colors ${
               dragOverColumn === column.id
                 ? 'border-brand-primary bg-brand-primary/5'
@@ -818,7 +831,14 @@ function TaskBoard({
                 <div
                   key={task.id}
                   draggable
-                  onDragStart={() => onDragStart(task.id)}
+                  onDragStart={e => {
+                    // Carry the id on the event itself. Some browsers refuse to
+                    // start a drag without payload, and reading it back on drop
+                    // is more reliable than trusting state to have settled.
+                    e.dataTransfer.setData('text/plain', task.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                    onDragStart(task.id);
+                  }}
                   className={`rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/50 p-3 cursor-grab active:cursor-grabbing ${
                     draggingId === task.id ? 'opacity-40' : ''
                   }`}

@@ -42,8 +42,9 @@ export default function DashboardsPage() {
     setTimeout(() => setChartsSaved(false), 2500);
   };
 
-  const handleDrop = (targetIndex: number) => {
-    if (draggingIndex !== null) reorderDashboardCharts(draggingIndex, targetIndex);
+  const handleDrop = (targetIndex: number, carriedIndex?: number) => {
+    const from = carriedIndex ?? draggingIndex;
+    if (from !== null && from !== undefined) reorderDashboardCharts(from, targetIndex);
     setDraggingIndex(null);
     setDragOverIndex(null);
   };
@@ -243,10 +244,24 @@ export default function DashboardsPage() {
                     <div
                       key={chart.id}
                       draggable
-                      onDragStart={() => setDraggingIndex(index)}
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', String(index));
+                        e.dataTransfer.effectAllowed = 'move';
+                        setDraggingIndex(index);
+                      }}
                       onDragEnd={() => { setDraggingIndex(null); setDragOverIndex(null); }}
-                      onDragOver={(e) => { e.preventDefault(); setDragOverIndex(index); }}
-                      onDrop={(e) => { e.preventDefault(); handleDrop(index); }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                        // Only on change: dragover fires continuously, and a
+                        // re-render mid-drag makes the browser cancel it.
+                        if (dragOverIndex !== index) setDragOverIndex(index);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const carried = Number(e.dataTransfer.getData('text/plain'));
+                        handleDrop(index, Number.isNaN(carried) ? undefined : carried);
+                      }}
                       className={`${isFullWidth ? 'lg:col-span-2' : ''} glass-card rounded-[2.5rem] p-8 relative group interactive-hover border-white/50 cursor-grab active:cursor-grabbing transition-all ${
                         draggingIndex === index ? 'opacity-40' : ''
                       } ${
