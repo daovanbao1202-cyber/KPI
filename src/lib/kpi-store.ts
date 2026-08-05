@@ -361,9 +361,21 @@ export async function saveAll(
 
   if (snapshot.users) push(await upsert('users', snapshot.users.map(userToRow)));
 
-  if (snapshot.kpiDefs) {
-    const kept = snapshot.kpiDefs.filter((k) => String(k.name ?? '').trim() !== '');
-    const rows = kept.map(kpiToRow);
+  // user_actuals.kpi_id and user_targets.kpi_id are foreign keys onto
+  // kpi_definitions, so the order below is not cosmetic:
+  //   1. write the surviving KPIs   (parents must exist before children)
+  //   2. write measurements, skipping any whose KPI is gone
+  //   3. delete orphaned measurements  (children before parents)
+  //   4. delete the removed KPIs
+  // Doing step 4 before step 2 made Postgres reject the entire save, so nothing
+  // at all was stored.
+
+  const keptKpis = snapshot.kpiDefs?.filter((k) => String(k.name ?? '').trim() !== '');
+  const liveKpiIds = keptKpis ? new Set(keptKpis.map((k) => String(k.id))) : null;
+  const referencesLiveKpi = (row: Row) => !liveKpiIds || liveKpiIds.has(String(row.kpiId));
+
+  if (keptKpis) {
+    const rows = keptKpis.map(kpiToRow);
 
     if (sheetTypeColumnMissing) {
       push(await upsert('kpi_definitions', rows.map(({ sheet_type: _drop, ...rest }) => rest)));
@@ -378,27 +390,34 @@ export async function saveAll(
         push(failure);
       }
     }
-
-    if (authoritative.includes('kpiDefs')) {
-      const keep = kept.map((k) => String(k.id));
-
-      // Refuse to empty the table. An empty list here is far more likely to be
-      // a client that has not finished loading than a deliberate wipe.
-      if (keep.length === 0) {
-        console.warn('Refusing to delete every KPI: the submitted list was empty.');
-      } else {
-        push(await pruneMissing('kpi_definitions', keep));
-        // Measurements belonging to a deleted KPI would linger forever.
-        push(await pruneOrphansByKpi('user_targets', keep));
-        push(await pruneOrphansByKpi('user_actuals', keep));
-        push(await pruneOrphansByKpi('kpi_reports', keep));
-      }
-    }
   }
 
-  if (snapshot.userActuals) push(await upsert('user_actuals', snapshot.userActuals.map(actualToRow)));
-  if (snapshot.userTargets) push(await upsert('user_targets', snapshot.userTargets.map(targetToRow)));
-  if (snapshot.reports) push(await upsert('kpi_reports', snapshot.reports.map(reportToRow)));
+  if (snapshot.userActuals) {
+    push(await upsert('user_actuals', snapshot.userActuals.filter(referencesLiveKpi).map(actualToRow)));
+  }
+  if (snapshot.userTargets) {
+    push(await upsert('user_targets', snapshot.userTargets.filter(referencesLiveKpi).map(targetToRow)));
+  }
+  if (snapshot.reports) {
+    push(await upsert('kpi_reports', snapshot.reports.filter(referencesLiveKpi).map(reportToRow)));
+  }
+
+  // Steps 3 and 4: clear measurements belonging to removed KPIs, then remove
+  // the KPIs themselves. Reversing these two violates the foreign keys.
+  if (keptKpis && authoritative.includes('kpiDefs')) {
+    const keep = keptKpis.map((k) => String(k.id));
+
+    // Refuse to empty the table. An empty list here is far more likely to be a
+    // client that has not finished loading than a deliberate wipe.
+    if (keep.length === 0) {
+      console.warn('Refusing to delete every KPI: the submitted list was empty.');
+    } else {
+      push(await pruneOrphansByKpi('user_targets', keep));
+      push(await pruneOrphansByKpi('user_actuals', keep));
+      push(await pruneOrphansByKpi('kpi_reports', keep));
+      push(await pruneMissing('kpi_definitions', keep));
+    }
+  }
 
   if (snapshot.groups) {
     push(await upsert('kpi_groups', snapshot.groups.map((g) => ({ id: g.id, name: g.name }))));

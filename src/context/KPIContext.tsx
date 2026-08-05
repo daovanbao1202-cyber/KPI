@@ -763,8 +763,17 @@ const saveLocalSnapshot = async (data: unknown) => {
   const deleteKPIDefinition = async (id: string) => {
     const updatedKpis = kpiDefs.filter(item => item.id !== id);
     setKpiDefs(updatedKpis);
-    
-    await deleteFromCloud('kpi_definitions', id);
+
+    // Drop the measurements that point at this KPI. Keeping them meant the next
+    // save re-sent rows referencing a KPI that no longer exists, which Postgres
+    // rejected on the foreign key and took the whole save down with it.
+    setUserTargets(prev => prev.filter(t => t.kpiId !== id));
+    setUserActuals(prev => prev.filter(a => a.kpiId !== id));
+    setReports(prev => prev.filter(r => r.kpiId !== id));
+
+    // Removal reaches the database through "Lưu thay đổi", which deletes the
+    // dependent rows before the KPI itself. Deleting the KPI here would hit the
+    // same foreign key.
 
     // Persist immediately to disk to prevent merge resurrection on page load
     try {
