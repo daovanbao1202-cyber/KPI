@@ -1,17 +1,43 @@
 {
-  "name": "K-Pulse KPI Management",
+  "name": "K-Pulse — Quản lý KPI DAEKHON VINA",
   "short_name": "K-Pulse",
-  "description": "Premium KPI Management Platform",
+  "description": "Theo dõi KPI, giao việc và báo cáo hiệu suất",
   "start_url": "/dashboard",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#f8fafc",
   "theme_color": "#555cf8",
+  "lang": "vi",
   "icons": [
     {
-      "src": "/kpi_app_icon_1778028960513.jpg",
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
       "sizes": "512x512",
-      "type": "image/jpeg",
-      "purpose": "any maskable"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Giao việc",
+      "url": "/dashboard/tasks",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Nhập số liệu",
+      "url": "/dashboard/data",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }
