@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, Filter, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { NO_KPI, NO_KPI_COLOR, kpiVisual } from '@/lib/kpi-colors';
 
 /**
  * Month calendar for task assignments.
@@ -38,23 +39,6 @@ const STATUS_LABEL: Record<CalendarTask['status'], string> = {
   review: 'Chờ duyệt',
   done: 'Hoàn thành',
 };
-
-/** One colour per KPI, assigned by position so it stays put between reloads. */
-const KPI_COLORS = [
-  { bar: 'bg-emerald-100 border-emerald-400 text-emerald-900', dot: 'bg-emerald-500' },
-  { bar: 'bg-sky-100 border-sky-400 text-sky-900', dot: 'bg-sky-500' },
-  { bar: 'bg-violet-100 border-violet-400 text-violet-900', dot: 'bg-violet-500' },
-  { bar: 'bg-amber-100 border-amber-400 text-amber-900', dot: 'bg-amber-500' },
-  { bar: 'bg-rose-100 border-rose-400 text-rose-900', dot: 'bg-rose-500' },
-  { bar: 'bg-teal-100 border-teal-400 text-teal-900', dot: 'bg-teal-500' },
-  { bar: 'bg-indigo-100 border-indigo-400 text-indigo-900', dot: 'bg-indigo-500' },
-  { bar: 'bg-orange-100 border-orange-400 text-orange-900', dot: 'bg-orange-500' },
-  { bar: 'bg-lime-100 border-lime-400 text-lime-900', dot: 'bg-lime-500' },
-  { bar: 'bg-fuchsia-100 border-fuchsia-400 text-fuchsia-900', dot: 'bg-fuchsia-500' },
-];
-
-const NO_KPI = '__none__';
-const NO_KPI_COLOR = { bar: 'bg-slate-100 border-slate-300 text-slate-700', dot: 'bg-slate-400' };
 
 const BAR_HEIGHT = 22;
 const BAR_GAP = 4;
@@ -157,13 +141,16 @@ export default function TaskCalendar({
   /** Only KPIs that actually have tasks, plus a bucket for unlinked ones. */
   const legend = useMemo(() => {
     const entries = kpis
-      .map((kpi, index) => ({
-        id: kpi.id,
-        name: kpi.name,
-        icon: kpi.icon || '🎯',
-        color: KPI_COLORS[index % KPI_COLORS.length],
-        count: tasks.filter((t) => t.kpiId === kpi.id).length,
-      }))
+      .map((kpi) => {
+        const visual = kpiVisual(kpi.id, kpis);
+        return {
+          id: kpi.id,
+          name: visual.name,
+          icon: visual.icon,
+          color: visual.color,
+          count: tasks.filter((t) => t.kpiId === kpi.id).length,
+        };
+      })
       .filter((entry) => entry.count > 0);
 
     const unlinked = tasks.filter((t) => !t.kpiId).length;

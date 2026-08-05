@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useKPI } from '@/context/KPIContext';
 import TaskCalendar from '@/components/tasks/TaskCalendar';
+import { kpiVisual } from '@/lib/kpi-colors';
 
 type TaskStatus = 'todo' | 'doing' | 'review' | 'done';
 type TaskPriority = 'low' | 'medium' | 'high';
@@ -138,12 +139,14 @@ export default function TasksPage() {
     return user ? `${user.firstName} ${user.lastName}` : 'Chưa giao';
   };
 
-  const kpiName = (id: string | null) => {
-    if (!id) return null;
-    const kpi = kpiDefs.find(k => k.id === id);
-    // The KPI may have been deleted; say so rather than showing a raw id.
-    return kpi ? kpi.name : 'KPI đã xoá';
-  };
+  /**
+   * Colour, icon and name for a KPI — the same everywhere it appears, and it
+   * says "KPI đã xoá" rather than showing a raw id when the KPI is gone.
+   */
+  const kpiBadge = useCallback(
+    (id: string | null) => kpiVisual(id, kpiDefs),
+    [kpiDefs]
+  );
 
   /** Anyone may move their own task; managers may move anyone's. */
   const mayUpdate = (task: Task) => canManage || task.assigneeId === currentUser?.id;
@@ -351,12 +354,12 @@ export default function TasksPage() {
           <TaskTable
             tasks={visibleTasks}
             userName={userName}
-            kpiName={kpiName}
             mayUpdate={mayUpdate}
             canManage={canManage}
             isOverdue={isOverdue}
             onPatch={patchTask}
             onRemove={removeTask}
+            kpiBadge={kpiBadge}
           />
         ) : (
           <TaskBoard
@@ -364,6 +367,7 @@ export default function TasksPage() {
             userName={userName}
             isOverdue={isOverdue}
             onMove={moveTask}
+            kpiBadge={kpiBadge}
           />
         )}
       </div>
@@ -665,16 +669,16 @@ function ProgressBar({ value }: { value: number }) {
 }
 
 function TaskTable({
-  tasks, userName, kpiName, mayUpdate, canManage, isOverdue, onPatch, onRemove,
+  tasks, userName, mayUpdate, canManage, isOverdue, onPatch, onRemove, kpiBadge,
 }: {
   tasks: Task[];
   userName: (id: number | null) => string;
-  kpiName: (id: string | null) => string | null;
   mayUpdate: (task: Task) => boolean;
   canManage: boolean;
   isOverdue: (task: Task) => boolean;
   onPatch: (id: string, changes: Partial<Task>) => void;
   onRemove: (id: string) => void;
+  kpiBadge: (id: string | null) => { color: { soft: string }; icon: string; name: string };
 }) {
   return (
     <>
@@ -720,8 +724,11 @@ function TaskTable({
                     <CalendarDays size={12} /> {task.dueDate}
                   </span>
                 )}
-                {kpiName(task.kpiId) && (
-                  <span className="text-[11px] text-slate-400">· {kpiName(task.kpiId)}</span>
+                {task.kpiId && (
+                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold ${kpiBadge(task.kpiId).color.soft}`}>
+                    <span className="leading-none">{kpiBadge(task.kpiId).icon}</span>
+                    <span className="truncate max-w-[120px]">{kpiBadge(task.kpiId).name}</span>
+                  </span>
                 )}
               </div>
 
@@ -781,7 +788,16 @@ function TaskTable({
                   )}
                 </td>
                 <td className="px-5 py-3 text-slate-600 dark:text-slate-300">{userName(task.assigneeId)}</td>
-                <td className="px-5 py-3 text-slate-500 text-xs">{kpiName(task.kpiId) ?? '—'}</td>
+                <td className="px-5 py-3">
+                  {task.kpiId ? (
+                    <span className={`inline-flex items-center gap-1.5 max-w-[180px] px-2 py-1 rounded-md text-[11px] font-bold ${kpiBadge(task.kpiId).color.soft}`}>
+                      <span className="leading-none">{kpiBadge(task.kpiId).icon}</span>
+                      <span className="truncate">{kpiBadge(task.kpiId).name}</span>
+                    </span>
+                  ) : (
+                    <span className="text-slate-300">—</span>
+                  )}
+                </td>
                 <td className="px-5 py-3">
                   <select
                     value={task.status}
@@ -862,12 +878,13 @@ function TaskTable({
  * hit-testing whatever is under it.
  */
 function TaskBoard({
-  tasks, userName, isOverdue, onMove,
+  tasks, userName, isOverdue, onMove, kpiBadge,
 }: {
   tasks: Task[];
   userName: (id: number | null) => string;
   isOverdue: (task: Task) => boolean;
   onMove: (task: Task, status: TaskStatus) => void;
+  kpiBadge: (id: string | null) => { color: { soft: string }; icon: string; name: string };
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [hoverColumn, setHoverColumn] = useState<TaskStatus | null>(null);
@@ -960,6 +977,11 @@ function TaskBoard({
                       dragId === task.id ? 'opacity-30' : ''
                     }`}
                   >
+                    {/* KPI first: it is what groups a card with its siblings. */}
+                    <div className={`inline-flex items-center gap-1 max-w-full mb-1.5 px-1.5 py-0.5 rounded-md text-[10px] font-bold ${kpiBadge(task.kpiId).color.soft}`}>
+                      <span className="leading-none">{kpiBadge(task.kpiId).icon}</span>
+                      <span className="truncate">{kpiBadge(task.kpiId).name}</span>
+                    </div>
                     <div className="font-bold text-sm text-slate-800 dark:text-white mb-1">{task.title}</div>
                     <div className="text-[11px] text-slate-500 mb-2">{userName(task.assigneeId)}</div>
                     {task.dueDate && (
@@ -1002,7 +1024,7 @@ function TaskForm({
   draft: typeof emptyDraft;
   setDraft: (next: typeof emptyDraft) => void;
   users: { id: number; firstName: string; lastName: string }[];
-  kpiDefs: { id: string; name: string }[];
+  kpiDefs: { id: string; name: string; icon?: string }[];
   isSaving: boolean;
   onCancel: () => void;
   onSubmit: () => void;
@@ -1065,7 +1087,9 @@ function TaskForm({
               >
                 <option value="">— Không gắn —</option>
                 {kpiDefs.map(k => (
-                  <option key={k.id} value={k.id}>{k.name}</option>
+                  <option key={k.id} value={k.id}>
+                    {(k.icon || '🎯') + '  ' + k.name}
+                  </option>
                 ))}
               </select>
             </div>
