@@ -346,7 +346,7 @@ export default function TasksPage() {
             <p className="text-slate-400 font-medium">Chưa có công việc nào.</p>
           </div>
         ) : view === 'calendar' ? (
-          <TaskCalendar tasks={visibleTasks} userName={userName} />
+          <TaskCalendar tasks={visibleTasks} kpis={kpiDefs} userName={userName} />
         ) : view === 'table' ? (
           <TaskTable
             tasks={visibleTasks}
