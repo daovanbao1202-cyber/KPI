@@ -1,0 +1,274 @@
+'use client';
+
+import { useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+
+/**
+ * Month calendar for task assignments.
+ *
+ * Each task is a bar running from its start date to its due date, so a glance
+ * shows what overlaps and where a week is overloaded — the reason a list view
+ * alone is not enough.
+ */
+
+export interface CalendarTask {
+  id: string;
+  title: string;
+  status: 'todo' | 'doing' | 'review' | 'done';
+  startDate: string | null;
+  dueDate: string | null;
+  assigneeId: number | null;
+}
+
+const WEEKDAYS = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+
+const STATUS_BAR: Record<CalendarTask['status'], string> = {
+  todo: 'bg-slate-200 text-slate-700 border-slate-300',
+  doing: 'bg-blue-100 text-blue-800 border-blue-300',
+  review: 'bg-amber-100 text-amber-800 border-amber-300',
+  done: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+};
+
+const BAR_HEIGHT = 22;
+const BAR_GAP = 4;
+
+/** Local-date key, avoiding the UTC shift that toISOString introduces. */
+function toKey(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+interface Segment {
+  task: CalendarTask;
+  startIndex: number;
+  span: number;
+  continuesLeft: boolean;
+  continuesRight: boolean;
+  lane: number;
+}
+
+/**
+ * Places each task on the first row where it does not collide, the way a
+ * calendar stacks overlapping events.
+ */
+function layoutWeek(tasks: CalendarTask[], weekStart: Date): Segment[] {
+  const weekStartKey = toKey(weekStart);
+  const weekEndKey = toKey(addDays(weekStart, 6));
+
+  const segments: Omit<Segment, 'lane'>[] = [];
+
+  for (const task of tasks) {
+    // A task with only one date still deserves a mark on that day.
+    const start = task.startDate || task.dueDate;
+    const end = task.dueDate || task.startDate;
+    if (!start || !end) continue;
+
+    const from = start <= end ? start : end;
+    const to = start <= end ? end : start;
+    if (to < weekStartKey || from > weekEndKey) continue;
+
+    const clampedFrom = from < weekStartKey ? weekStartKey : from;
+    const clampedTo = to > weekEndKey ? weekEndKey : to;
+
+    let startIndex = 0;
+    let endIndex = 0;
+    for (let i = 0; i < 7; i++) {
+      const key = toKey(addDays(weekStart, i));
+      if (key === clampedFrom) startIndex = i;
+      if (key === clampedTo) endIndex = i;
+    }
+
+    segments.push({
+      task,
+      startIndex,
+      span: Math.max(1, endIndex - startIndex + 1),
+      continuesLeft: from < weekStartKey,
+      continuesRight: to > weekEndKey,
+    });
+  }
+
+  segments.sort((a, b) => a.startIndex - b.startIndex || b.span - a.span);
+
+  const laneEnds: number[] = [];
+  return segments.map((segment) => {
+    let lane = laneEnds.findIndex((end) => end < segment.startIndex);
+    if (lane === -1) {
+      lane = laneEnds.length;
+      laneEnds.push(0);
+    }
+    laneEnds[lane] = segment.startIndex + segment.span - 1;
+    return { ...segment, lane };
+  });
+}
+
+export default function TaskCalendar({
+  tasks,
+  userName,
+}: {
+  tasks: CalendarTask[];
+  userName: (id: number | null) => string;
+}) {
+  const [cursor, setCursor] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+
+  const todayKey = toKey(new Date());
+
+  const weeks = useMemo(() => {
+    const firstOfMonth = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+    // Back up to the Sunday on or before the 1st.
+    const gridStart = addDays(firstOfMonth, -firstOfMonth.getDay());
+
+    return Array.from({ length: 6 }, (_, week) => addDays(gridStart, week * 7));
+  }, [cursor]);
+
+  const undated = tasks.filter((t) => !t.startDate && !t.dueDate);
+
+  const monthLabel = `Tháng ${cursor.getMonth() + 1}, ${cursor.getFullYear()}`;
+
+  return (
+    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+      <div className="flex items-center gap-3 px-5 py-3 border-b border-slate-100 dark:border-slate-800">
+        <button
+          onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
+          className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+          aria-label="Tháng trước"
+        >
+          <ChevronLeft size={18} />
+        </button>
+
+        <button
+          onClick={() => {
+            const now = new Date();
+            setCursor(new Date(now.getFullYear(), now.getMonth(), 1));
+          }}
+          className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"
+        >
+          Hôm nay
+        </button>
+
+        <button
+          onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}
+          className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+          aria-label="Tháng sau"
+        >
+          <ChevronRight size={18} />
+        </button>
+
+        <h3 className="ml-2 font-black text-slate-800 dark:text-white">{monthLabel}</h3>
+
+        <div className="ml-auto flex items-center gap-3 text-[11px] font-medium text-slate-400">
+          {(['todo', 'doing', 'review', 'done'] as const).map((status) => (
+            <span key={status} className="flex items-center gap-1.5">
+              <span className={`w-2.5 h-2.5 rounded-sm border ${STATUS_BAR[status]}`} />
+              {{ todo: 'Chưa bắt đầu', doing: 'Đang làm', review: 'Chờ duyệt', done: 'Hoàn thành' }[status]}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-7 border-b border-slate-100 dark:border-slate-800">
+        {WEEKDAYS.map((day) => (
+          <div
+            key={day}
+            className="px-3 py-2 text-[11px] font-black uppercase tracking-wider text-slate-400 text-center"
+          >
+            {day}
+          </div>
+        ))}
+      </div>
+
+      <div className="overflow-x-auto">
+        <div className="min-w-[840px]">
+          {weeks.map((weekStart, weekIndex) => {
+            const segments = layoutWeek(tasks, weekStart);
+            const lanes = segments.reduce((max, s) => Math.max(max, s.lane + 1), 0);
+            const bodyHeight = Math.max(64, lanes * (BAR_HEIGHT + BAR_GAP) + 8);
+
+            return (
+              <div key={weekIndex} className="border-b border-slate-100 dark:border-slate-800 last:border-b-0">
+                <div className="grid grid-cols-7">
+                  {Array.from({ length: 7 }, (_, dayIndex) => {
+                    const day = addDays(weekStart, dayIndex);
+                    const key = toKey(day);
+                    const inMonth = day.getMonth() === cursor.getMonth();
+                    const isToday = key === todayKey;
+
+                    return (
+                      <div
+                        key={dayIndex}
+                        className={`px-2 pt-2 border-r border-slate-50 dark:border-slate-800/60 last:border-r-0 ${
+                          isToday ? 'bg-brand-primary/5' : ''
+                        }`}
+                      >
+                        <span
+                          className={`text-xs font-bold ${
+                            isToday
+                              ? 'text-brand-primary'
+                              : inMonth
+                                ? 'text-slate-600 dark:text-slate-300'
+                                : 'text-slate-300 dark:text-slate-600'
+                          }`}
+                        >
+                          {day.getDate()}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Bars float above the day cells so one can span several days. */}
+                <div className="relative" style={{ height: bodyHeight }}>
+                  {segments.map((segment) => (
+                    <div
+                      key={`${segment.task.id}-${weekIndex}`}
+                      title={`${segment.task.title} — ${userName(segment.task.assigneeId)}${
+                        segment.task.dueDate ? ` (hạn ${segment.task.dueDate})` : ''
+                      }`}
+                      className={`absolute truncate text-[11px] font-bold px-2 py-0.5 border ${
+                        STATUS_BAR[segment.task.status]
+                      } ${segment.continuesLeft ? 'rounded-l-none' : 'rounded-l-md'} ${
+                        segment.continuesRight ? 'rounded-r-none' : 'rounded-r-md'
+                      }`}
+                      style={{
+                        left: `calc(${(segment.startIndex / 7) * 100}% + 4px)`,
+                        width: `calc(${(segment.span / 7) * 100}% - 8px)`,
+                        top: segment.lane * (BAR_HEIGHT + BAR_GAP),
+                        height: BAR_HEIGHT,
+                        lineHeight: `${BAR_HEIGHT - 4}px`,
+                      }}
+                    >
+                      {segment.continuesLeft ? '‹ ' : ''}
+                      {segment.task.title}
+                      {segment.continuesRight ? ' ›' : ''}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {undated.length > 0 && (
+        <div className="px-5 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/30">
+          <p className="text-[11px] font-bold text-slate-500">
+            {undated.length} công việc chưa có ngày nên không hiện trên lịch:{' '}
+            <span className="font-medium text-slate-400">
+              {undated.slice(0, 3).map((t) => t.title).join(', ')}
+              {undated.length > 3 ? '…' : ''}
+            </span>
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}

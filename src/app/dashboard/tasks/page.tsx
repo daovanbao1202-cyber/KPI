@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import {
-  AlertCircle, CalendarDays, CheckCircle2, Inbox, LayoutGrid, List, ListChecks, Plus, Trash2, X,
+  AlertCircle, CalendarDays, CalendarRange, CheckCircle2, Inbox, LayoutGrid, List, ListChecks,
+  Plus, Trash2, X,
 } from 'lucide-react';
 import { useKPI } from '@/context/KPIContext';
+import TaskCalendar from '@/components/tasks/TaskCalendar';
 
 type TaskStatus = 'todo' | 'doing' | 'review' | 'done';
 type TaskPriority = 'low' | 'medium' | 'high';
@@ -54,7 +56,7 @@ export default function TasksPage() {
   const { users, kpiDefs, currentUser } = useKPI();
 
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [view, setView] = useState<'table' | 'board'>('table');
+  const [view, setView] = useState<'table' | 'board' | 'calendar'>('table');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -306,6 +308,14 @@ export default function TasksPage() {
               >
                 <LayoutGrid size={15} /> Kanban
               </button>
+              <button
+                onClick={() => setView('calendar')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${
+                  view === 'calendar' ? 'bg-brand-primary text-white' : 'text-slate-500'
+                }`}
+              >
+                <CalendarRange size={15} /> Lịch
+              </button>
             </div>
 
             {canManage && (
@@ -337,6 +347,8 @@ export default function TasksPage() {
             <CheckCircle2 size={40} className="mx-auto mb-3 text-slate-300" />
             <p className="text-slate-400 font-medium">Chưa có công việc nào.</p>
           </div>
+        ) : view === 'calendar' ? (
+          <TaskCalendar tasks={visibleTasks} userName={userName} />
         ) : view === 'table' ? (
           <TaskTable
             tasks={visibleTasks}
